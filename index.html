@@ -1,0 +1,2178 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mantar Haritası</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --moss: #1f3b34;
+    --lichen: #e8ece4;
+    --paper: #fbfcfa;
+    --ink: #1b2420;
+    --muted: #5f6b65;
+    --line: #d3dacf;
+
+    --c-yenilebilir: #2e8b57;
+    --c-zehirli: #c62f2f;
+    --c-tibbi: #2f6fb5;
+    --c-supheli: #e0a21b;
+    --c-yenmez: #7a8580;
+    --c-olumcul: #2a1a2e;
+
+    --radius: 14px;
+    --font: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: var(--font); color: var(--ink); background: var(--lichen); overflow: hidden; }
+  #map { position: fixed; inset: 0; z-index: 0; }
+
+  /* ---------- Üst çubuk ---------- */
+  .topbar {
+    position: fixed; z-index: 500;
+    top: max(10px, env(safe-area-inset-top)); left: 10px; right: 10px;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .row { display: flex; gap: 8px; align-items: flex-start; }
+  .brand {
+    pointer-events: auto; background: var(--moss); color: #fff;
+    padding: 11px 16px; border-radius: 999px;
+    font-weight: 800; font-size: 17px; letter-spacing: -0.01em; white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  @media (max-width: 640px) { .brand { display: none; } }
+
+  .search { position: relative; flex: 1; max-width: 480px; pointer-events: auto; }
+  .search input {
+    font: inherit; font-size: 16px; width: 100%;
+    padding: 11px 40px 11px 42px; border-radius: 999px;
+    border: 1.5px solid var(--line); background: var(--paper); color: var(--ink);
+    box-shadow: 0 2px 10px rgba(0,0,0,.14);
+  }
+  .search .ico { position: absolute; left: 14px; top: 13px; width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+  .search .clear {
+    position: absolute; right: 6px; top: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+    background: transparent; font-size: 20px; line-height: 1; color: var(--muted); cursor: pointer;
+  }
+  .search .clear[hidden] { display: none; }
+
+  .results {
+    position: absolute; left: 0; right: 0; top: calc(100% + 6px);
+    margin: 0; padding: 4px; list-style: none;
+    background: #fff; border: 1.5px solid var(--line); border-radius: 16px;
+    box-shadow: 0 12px 28px rgba(0,0,0,.18); max-height: 55vh; overflow-y: auto;
+  }
+  .results[hidden] { display: none; }
+  .results li {
+    padding: 9px 10px; border-radius: 10px; cursor: pointer;
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center;
+  }
+  .results li[aria-selected="true"], .results li:hover { background: var(--lichen); }
+  .r-main { font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .r-main span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--c, var(--moss)); }
+  .r-tag { font-size: 12px; color: var(--moss); background: var(--lichen); border-radius: 999px; padding: 2px 8px; font-weight: 600; }
+  .r-sub { grid-column: 1 / -1; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .filters {
+    display: flex; gap: 6px; pointer-events: auto; overflow-x: auto; padding: 2px 2px 6px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip {
+    font: inherit; font-size: 13px; font-weight: 600; flex: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 11px; border-radius: 999px;
+    background: var(--paper); color: var(--ink);
+    border: 1.5px solid var(--line); cursor: pointer;
+    box-shadow: 0 1px 6px rgba(0,0,0,.1);
+  }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+  .chip[aria-pressed="false"] { opacity: .5; }
+  .chip.lit { background: var(--moss); color: #fff; border-color: var(--moss); }
+  .chip.lit[aria-pressed="false"] { background: var(--paper); color: var(--ink); border-color: var(--line); }
+  .chip.lit .n { opacity: .8; font-weight: 400; }
+  .sep { width: 1px; background: var(--line); flex: none; margin: 4px 2px; }
+
+  .chip:focus-visible, .btn:focus-visible, .seg label:focus-within, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, .icon-btn:focus-visible, .clear:focus-visible,
+  .leaflet-bar a:focus-visible { outline: 3px solid #7fb5a6; outline-offset: 2px; }
+
+  /* ---------- Alt kontroller ---------- */
+  .fab {
+    position: fixed; z-index: 500; left: 50%; transform: translateX(-50%);
+    bottom: max(18px, env(safe-area-inset-bottom));
+    background: var(--moss); color: #fff; border: 0;
+    font: inherit; font-weight: 700; font-size: 15px;
+    padding: 13px 20px; border-radius: 999px; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(31,59,52,.35);
+  }
+  .fab[hidden] { display: none; }
+  .hint {
+    position: fixed; z-index: 400; left: 50%; transform: translateX(-50%);
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 62px);
+    background: rgba(251,252,250,.95); color: var(--muted);
+    font-size: 13px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line); white-space: nowrap;
+  }
+  .hint[hidden] { display: none; }
+  .perm {
+    position: fixed; z-index: 450; left: 10px; right: 10px; margin: 0 auto; max-width: 440px;
+    bottom: calc(max(18px, env(safe-area-inset-bottom)) + 62px);
+    background: var(--paper); border: 1.5px solid var(--line); border-radius: 16px;
+    padding: 12px 14px; box-shadow: 0 10px 28px rgba(0,0,0,.2); font-size: 14px;
+  }
+  .perm[hidden] { display: none; }
+  .perm p { margin: 0 0 10px; line-height: 1.4; }
+  .perm .acts { display: flex; gap: 8px; }
+
+  .leaflet-top.leaflet-right { top: 56px; }
+  @media (max-width: 640px) { .leaflet-top.leaflet-right { top: 112px; } }
+  .leaflet-bar a.loc svg { display: block; margin: 5px auto; width: 20px; height: 20px; }
+
+  /* ---------- Form paneli ---------- */
+  .sheet {
+    position: fixed; z-index: 1000; background: var(--paper);
+    display: flex; flex-direction: column;
+    left: 0; right: 0; bottom: 0; max-height: 88vh;
+    border-radius: 20px 20px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.2);
+    transform: translateY(105%); transition: transform .25s ease;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sheet.open { transform: translateY(0); }
+  @media (min-width: 760px) {
+    .sheet { top: 0; bottom: 0; left: 0; right: auto; width: 410px; max-height: none; border-radius: 0 20px 20px 0; transform: translateX(-105%); }
+    .sheet.open { transform: translateX(0); }
+  }
+  .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 18px 10px; }
+  .sheet-head h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .coords { margin: 4px 0 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .icon-btn { border: 0; background: var(--lichen); width: 36px; height: 36px; border-radius: 50%; font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); }
+  .sheet-body { overflow-y: auto; padding: 4px 18px 18px; display: flex; flex-direction: column; gap: 16px; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; position: relative; }
+  .field > label, .legend { font-size: 14px; font-weight: 600; }
+  .sub { font-weight: 400; color: var(--muted); font-size: 13px; }
+  input[type="text"], input[type="date"], select, textarea {
+    font: inherit; font-size: 16px; width: 100%; padding: 11px 12px; border-radius: 10px;
+    border: 1.5px solid var(--line); background: #fff; color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 76px; }
+
+  .btn {
+    font: inherit; font-weight: 700; font-size: 15px; cursor: pointer;
+    border-radius: 10px; padding: 12px 16px; border: 1.5px solid var(--moss);
+    background: var(--moss); color: #fff;
+  }
+  .btn.ghost { background: transparent; color: var(--moss); }
+  .btn.small { padding: 7px 11px; font-size: 13px; }
+
+  .suggest {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 20;
+    margin: 4px 0 0; padding: 4px; list-style: none;
+    background: #fff; border: 1.5px solid var(--line); border-radius: 12px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.14); max-height: 260px; overflow-y: auto;
+  }
+  .suggest li { padding: 9px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+  .suggest li[aria-selected="true"], .suggest li:hover { background: var(--lichen); }
+  .suggest .s-main { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .suggest .s-sub { font-size: 13px; color: var(--muted); }
+  .suggest .s-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .suggest .s-new { font-weight: 600; color: var(--moss); }
+
+  .match { font-size: 14px; background: var(--lichen); border-radius: 10px; padding: 9px 12px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+  .match[hidden] { display: none; }
+  .match em { font-style: italic; font-weight: 600; }
+  .match button { border: 0; background: none; color: var(--moss); font: inherit; font-weight: 700; cursor: pointer; }
+
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+  .check input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--moss); }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border: 0; margin: 0; padding: 0; }
+  .seg legend { padding: 0; margin-bottom: 6px; }
+  .seg label {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 10px 12px; border-radius: 10px; font-weight: 600; font-size: 14px;
+    border: 1.5px solid var(--line); background: #fff;
+  }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); }
+  .seg label:has(input:checked) { border-color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff); box-shadow: inset 0 0 0 1px var(--c); }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 380px) { .two { grid-template-columns: 1fr; } }
+
+  .photo-row { display: flex; gap: 12px; align-items: center; }
+  .photo-row img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; border: 1.5px solid var(--line); }
+  .photo-row img[hidden] { display: none; }
+  .photo-row input[type="file"] { font-size: 14px; max-width: 100%; }
+
+  .sheet-foot { padding: 12px 18px 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  .disclaimer { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+  /* ---------- Popup ---------- */
+  .leaflet-popup-content-wrapper { border-radius: 14px; font-family: var(--font); }
+  .leaflet-popup-content { margin: 12px 14px; min-width: 200px; max-height: 60vh; overflow-y: auto; }
+  .pop h3 { margin: 0 0 2px; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+  .pop .latin { margin: 0 0 8px; font-style: italic; color: var(--muted); font-size: 14px; }
+  .pop .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pop .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; background: var(--c); }
+  .pop .badge.src { background: var(--lichen); color: var(--moss); }
+  .pop img { width: 100%; max-height: 140px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; }
+  .pop dl { margin: 8px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; }
+  .pop dt { color: var(--muted); }
+  .pop dd { margin: 0; }
+  .pop .note { margin: 8px 0 0; font-size: 13px; line-height: 1.4; }
+  .pop .warn { margin: 8px 0 0; font-size: 12.5px; line-height: 1.4; color: #8a5a00; background: #fff4d6; border-radius: 8px; padding: 6px 8px; }
+  .pop .srcnote { margin: 8px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+  .pop .del { margin-top: 10px; border: 0; background: none; color: var(--c-zehirli); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; }
+  .pop .acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .pop a.lnk { font-size: 13px; color: var(--moss); font-weight: 600; align-self: center; }
+  .pop .coord { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  .pop ul.sp { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; display: grid; gap: 3px; }
+  .pop ul.sp li { display: flex; gap: 7px; align-items: baseline; cursor: pointer; }
+  .pop ul.sp li:hover { text-decoration: underline; }
+  .pop ul.sp .d { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+
+  .pin { filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+  .pin.temp { animation: bob .9s ease-in-out infinite alternate; }
+  @keyframes bob { to { transform: translateY(-5px); } }
+  @media (prefers-reduced-motion: reduce) { .pin.temp { animation: none; } .sheet { transition: none; } }
+
+  .cl {
+    display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    background: var(--moss); color: #fff; font-weight: 800; font-size: 13px;
+    border: 3px solid rgba(255,255,255,.92); box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .target { filter: drop-shadow(0 1px 3px rgba(0,0,0,.4)); }
+
+  .toast {
+    position: fixed; z-index: 2000; left: 50%; top: max(60px, calc(env(safe-area-inset-top) + 50px));
+    transform: translateX(-50%); background: var(--ink); color: #fff;
+    padding: 10px 16px; border-radius: 16px; font-size: 14px; font-weight: 600;
+    max-width: 90vw; text-align: center; line-height: 1.35;
+  }
+  .toast[hidden] { display: none; }
+
+  /* ---------- Rehber düğmesi ---------- */
+  .guide-btn {
+    pointer-events: auto; flex: none; border: 0; cursor: pointer;
+    font: inherit; font-weight: 700; font-size: 15px;
+    background: var(--moss); color: #fff; padding: 11px 16px; border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.18); display: inline-flex; align-items: center; gap: 7px;
+  }
+  .guide-btn svg { width: 18px; height: 18px; }
+
+  /* ---------- Mantar Rehberi ---------- */
+  .guide { position: fixed; inset: 0; z-index: 1500; background: var(--lichen); display: flex; flex-direction: column; }
+  .guide[hidden] { display: none; }
+  .g-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: max(12px, env(safe-area-inset-top)) 16px 6px; background: var(--moss); color: #fff; }
+  .g-head h2 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+  .g-head .icon-btn { background: rgba(255,255,255,.16); color: #fff; }
+  .g-tabs { display: flex; gap: 6px; padding: 6px 12px 12px; overflow-x: auto; background: var(--moss); scrollbar-width: none; }
+  .g-tabs::-webkit-scrollbar { display: none; }
+  .g-tab { font: inherit; font-size: 14px; font-weight: 600; flex: none; cursor: pointer;
+    padding: 7px 14px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.35); background: transparent; color: #fff; }
+  .g-tab[aria-selected="true"] { background: #fff; color: var(--moss); border-color: #fff; }
+  .g-tab:focus-visible { outline: 3px solid #7fb5a6; outline-offset: 2px; }
+  .g-body { flex: 1; overflow-y: auto; padding: 16px 14px calc(28px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
+  .g-wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .g-h { margin: 6px 0 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .g-note { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 11px 14px; font-size: 14px; line-height: 1.5; }
+  .g-note.warn { background: #fff4d6; border-color: #ecd28a; color: #5c4200; }
+  .g-ctl { display: flex; flex-direction: column; gap: 10px; }
+  .g-q { font: inherit; font-size: 16px; width: 100%; max-width: 420px; padding: 11px 14px; border-radius: 999px;
+    border: 1.5px solid var(--line); background: #fff; color: var(--ink); }
+  .g-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .g-chips .chip[aria-pressed="false"] { opacity: .6; }
+  .g-chips .chip[aria-pressed="true"] { border-color: var(--ink); }
+  .g-list { display: flex; flex-direction: column; gap: 26px; }
+  .g-cat-head { display: flex; align-items: center; gap: 10px; }
+  .g-cat-head h3 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+  .g-cat-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--c); flex: none; }
+  .g-count { font-size: 13px; color: var(--muted); background: #fff; border-radius: 999px; padding: 1px 9px; border: 1px solid var(--line); }
+  .g-intro { margin: 6px 0 12px; font-size: 14px; line-height: 1.5; color: var(--muted); max-width: 760px; }
+  .g-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  .g-card { background: var(--paper); border: 1.5px solid var(--line); border-top: 4px solid var(--c); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
+  .g-fig { margin: 0; position: relative; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--c) 14%, #fff); overflow: hidden; }
+  .g-fig img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .g-ph { position: absolute; inset: 0; display: grid; place-items: center; }
+  .g-ph svg { width: 46%; }
+  .g-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 8px; font-size: 11px;
+    background: rgba(255,255,255,.88); color: var(--muted); }
+  .g-cap { line-height: 1.3; max-height: 2.8em; overflow: hidden; }
+  .g-cap a { color: var(--moss); font-weight: 600; }
+  .g-fig.zoom { cursor: zoom-in; }
+  .g-fig.zoom:focus-visible { outline: 3px solid #7fb5a6; outline-offset: -3px; }
+  .lb { position: fixed; inset: 0; z-index: 1800; background: rgba(10,14,12,.96); display: flex; flex-direction: column; color: #fff; }
+  .lb[hidden] { display: none; }
+  .lb-top { display: flex; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 14px 8px; }
+  .lb-top strong { flex: 1; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-count { font-size: 13px; opacity: .75; font-variant-numeric: tabular-nums; }
+  .lb .icon-btn { background: rgba(255,255,255,.18); color: #fff; }
+  .lb-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 6px; }
+  .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+  .lb-msg { opacity: .8; font-size: 15px; }
+  .lb-bottom { display: flex; align-items: center; gap: 10px; padding: 8px 12px calc(14px + env(safe-area-inset-bottom)); }
+  .lb-cap { flex: 1; font-size: 12.5px; line-height: 1.4; text-align: center; opacity: .9; }
+  .lb-cap a { color: #bfe3d6; }
+  .lb-nav { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255,255,255,.18); color: #fff; font-size: 28px; line-height: 1; cursor: pointer; }
+  .lb-nav[hidden] { display: none; }
+  .g-card-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .g-badge { align-self: flex-start; font-size: 12px; font-weight: 700; color: #fff; background: var(--c); padding: 3px 9px; border-radius: 999px; }
+  .g-card h4 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+  .g-card h4.g-latin-title { font-style: italic; }
+  .g-latin { margin: -4px 0 0; font-size: 14px; color: var(--muted); }
+  .g-text { margin: 0; font-size: 14px; line-height: 1.5; }
+  .g-det { font-size: 14px; }
+  .g-det summary { cursor: pointer; font-weight: 600; color: var(--moss); }
+  .g-det p { margin: 6px 0 0; line-height: 1.5; }
+  .g-warn { font-size: 13px; line-height: 1.45; background: color-mix(in srgb, var(--c) 10%, #fff); border-left: 4px solid var(--c); border-radius: 6px; padding: 8px 10px; }
+  .g-mapnote { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .g-empty { color: var(--muted); }
+  .g-rules { margin: 0; padding: 0; list-style: none; counter-reset: r; display: grid; gap: 10px; }
+  .g-rules li { counter-increment: r; background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 11px 14px 11px 52px; position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .g-rules li::before { content: counter(r); position: absolute; left: 14px; top: 11px; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--moss); color: #fff; font-weight: 800; display: grid; place-items: center; font-size: 14px; }
+  .g-rules strong { font-size: 15px; }
+  .g-rules span { font-size: 14px; line-height: 1.5; color: var(--muted); }
+  .g-myths { display: grid; gap: 8px; }
+  .g-myth { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  .g-myth p { margin: 0; font-size: 14px; line-height: 1.45; }
+  .g-myth .m { font-weight: 700; }
+  .g-myth .t { color: var(--muted); margin-top: 3px; }
+  .g-emerg { background: #fdeaea; border: 1.5px solid #e8b4b4; border-radius: 14px; padding: 12px 16px; }
+  .g-emerg ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; line-height: 1.5; }
+  .g-tips { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .g-tip { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  .g-tip p { margin: 4px 0 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
+  .g-recipes { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .g-recipe { background: #fff; border: 1.5px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .g-recipe h4 { margin: 0; font-size: 18px; font-weight: 800; }
+  .g-recipe h5 { margin: 12px 0 4px; font-size: 14px; color: var(--moss); }
+  .g-recipe ul, .g-recipe ol { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+  .g-meta { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+  .g-info { background: #fff; border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 16px; }
+  .g-info h4 { margin: 0 0 6px; font-size: 17px; font-weight: 800; }
+  .g-info p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; }
+  .g-info p:last-child { margin-bottom: 0; }
+  .g-foot { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+
+<body>
+<div id="map" aria-label="Mantar haritası"></div>
+
+<header class="topbar">
+  <div class="row">
+    <div class="brand">Mantar Haritası</div>
+    <div class="search">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="q" placeholder="Koordinat, yer, mantar adı veya lokalite ara"
+             role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list"
+             autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      <button class="clear" id="clearQ" type="button" aria-label="Aramayı temizle" hidden>×</button>
+      <ul class="results" id="results" role="listbox" hidden></ul>
+    </div>
+    <button class="guide-btn" id="guideBtn" type="button" aria-label="Mantar rehberini aç">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 21.5V5.5"/><path d="M9 8h7"/></svg>
+      Rehber
+    </button>
+  </div>
+  <div class="filters" id="filters" role="group" aria-label="Kategori filtresi"></div>
+</header>
+
+<div class="hint" id="hint">Haritaya dokunarak bir nokta seç</div>
+
+<div class="perm" id="perm" hidden>
+  <p>Bulunduğun yeri haritada göstermek ve oradan kayıt ekleyebilmek için konum iznine ihtiyaç var.</p>
+  <div class="acts">
+    <button class="btn small" id="permYes" type="button">Konumumu bul</button>
+    <button class="btn small ghost" id="permNo" type="button">Şimdi değil</button>
+  </div>
+</div>
+
+<button class="fab" id="fabLocate" type="button">Bulunduğum yerden ekle</button>
+
+<!-- ---------- Mantar Ekle formu ---------- -->
+<section class="sheet" id="sheet" role="dialog" aria-modal="false" aria-labelledby="sheetTitle">
+  <div class="sheet-head">
+    <div>
+      <h2 id="sheetTitle">Mantar ekle</h2>
+      <p class="coords" id="coords">—</p>
+    </div>
+    <button class="icon-btn" id="closeSheet" type="button" aria-label="Formu kapat">×</button>
+  </div>
+
+  <form class="sheet-body" id="form" autocomplete="off" novalidate>
+    <div>
+      <button class="btn ghost small" id="useGps" type="button">Konumumu kullan</button>
+      <span class="sub">&nbsp;ya da pini sürükle / haritada başka yere dokun</span>
+    </div>
+
+    <div class="field">
+      <label for="nameInput">Mantarın adı <span class="sub">Latince ya da yöresel</span></label>
+      <input type="text" id="nameInput" placeholder="Örn. Kanlıca, Porçini, Boletus edulis"
+             role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+      <ul class="suggest" id="suggest" role="listbox" hidden></ul>
+    </div>
+
+    <div class="match" id="match" hidden>
+      <span id="matchText"></span>
+      <button type="button" id="clearMatch">Kaldır</button>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="unknown">
+      <span>Adını bilmiyorum, tespit edilmeyi bekliyor</span>
+    </label>
+
+    <fieldset class="seg" id="catGroup">
+      <legend class="legend">Kategori</legend>
+      <label style="--c: var(--c-yenilebilir)"><input type="radio" name="cat" value="yenilebilir"><span class="dot"></span><span>Yenilebilir</span></label>
+      <label style="--c: var(--c-zehirli)"><input type="radio" name="cat" value="zehirli"><span class="dot"></span><span>Zehirli</span></label>
+      <label style="--c: var(--c-tibbi)"><input type="radio" name="cat" value="tibbi"><span class="dot"></span><span>Tıbbi</span></label>
+      <label style="--c: var(--c-supheli)"><input type="radio" name="cat" value="supheli" checked><span class="dot"></span><span>Şüpheli</span></label>
+      <label style="--c: var(--c-yenmez)"><input type="radio" name="cat" value="yenmez"><span class="dot"></span><span>Yenmez</span></label>
+      <label style="--c: var(--c-olumcul)"><input type="radio" name="cat" value="olumcul"><span class="dot"></span><span>Ölümcül</span></label>
+    </fieldset>
+
+    <div class="two">
+      <div class="field">
+        <label for="date">Bulunma tarihi</label>
+        <input type="date" id="date">
+      </div>
+      <div class="field">
+        <label for="habitat">Yetiştiği ortam</label>
+        <select id="habitat">
+          <option value="">Seçilmedi</option>
+          <option>Çam altı</option>
+          <option>Meşe altı</option>
+          <option>Kayın ormanı</option>
+          <option>Kestane</option>
+          <option>Çayır / otlak</option>
+          <option>Ölü ağaç / kütük</option>
+          <option>Diğer</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="photo">Fotoğraf</label>
+      <div class="photo-row">
+        <img id="preview" alt="Seçilen fotoğraf önizlemesi" hidden>
+        <input type="file" id="photo" accept="image/*" capture="environment">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="notes">Notlar</label>
+      <textarea id="notes" placeholder="Kokusu, şapka rengi, yanında hangi ağaç var…"></textarea>
+    </div>
+  </form>
+
+  <div class="sheet-foot">
+    <button class="btn" id="save" type="button">Kaydet</button>
+    <p class="disclaimer">Kategori, kullanıcı bildirimidir; kesin teşhis değildir. Uzman onayı olmadan hiçbir mantarı tüketmeyin.</p>
+  </div>
+</section>
+
+<!-- ---------- Mantar Rehberi ---------- -->
+<section class="guide" id="guide" role="dialog" aria-modal="true" aria-labelledby="guideTitle" hidden>
+  <div class="g-head">
+    <h2 id="guideTitle">Mantar Rehberi</h2>
+    <button class="icon-btn" id="closeGuide" type="button" aria-label="Rehberi kapat">×</button>
+  </div>
+  <div class="g-tabs" id="gTabs" role="tablist" aria-label="Rehber bölümleri"></div>
+  <div class="g-body" id="gBody"></div>
+</section>
+
+<!-- ---------- Büyük görüntüleyici ---------- -->
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-labelledby="lbTitle" hidden>
+  <div class="lb-top">
+    <strong id="lbTitle"></strong>
+    <span class="lb-count" id="lbCount"></span>
+    <button class="icon-btn" id="lbClose" type="button" aria-label="Kapat">×</button>
+  </div>
+  <div class="lb-stage" id="lbStage"></div>
+  <div class="lb-bottom">
+    <button class="lb-nav" id="lbPrev" type="button" aria-label="Önceki fotoğraf" hidden>‹</button>
+    <div class="lb-cap" id="lbCap"></div>
+    <button class="lb-nav" id="lbNext" type="button" aria-label="Sonraki fotoğraf" hidden>›</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  /* =========================================================
+     1) Kategoriler
+     ========================================================= */
+  const CATS = {
+    yenilebilir: { label: 'Yenilebilir', color: '#2e8b57' },
+    zehirli:     { label: 'Zehirli',     color: '#c62f2f' },
+    tibbi:       { label: 'Tıbbi',       color: '#2f6fb5' },
+    supheli:     { label: 'Şüpheli',     color: '#e0a21b' },
+    yenmez:      { label: 'Yenmez',      color: '#7a8580' },
+    olumcul:     { label: 'Ölümcül',     color: '#2a1a2e' }
+  };
+  const CODE = { Y: 'yenilebilir', Z: 'zehirli', T: 'tibbi', S: 'supheli', N: 'yenmez', O: 'olumcul' };
+
+  // Türkçe uyumlu normalizasyon: "Çörek" → "corek"
+  const norm = s => (s || '').toLocaleLowerCase('tr')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i').trim();
+
+  /* =========================================================
+     2) KOORDİNAT ÇÖZÜMLEYİCİ
+        Kabul edilen örnekler:
+          37.0662, 37.3833
+          37,0662 37,3833
+          37°03′58″N 37°23′E     (K/G/D/B harfleri de olur)
+          N 37 03 58  E 37 23 00
+          Google Maps bağlantısı (…@37.06,37.38,…)
+     ========================================================= */
+  // <parse>
+  function parseCoords(input) {
+    if (!input) return null;
+    let s = String(input).trim();
+    const num = x => parseFloat(String(x).replace(',', '.'));
+    const ok = (lat, lng) =>
+      (isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) ? { lat, lng } : null;
+
+    // 1) Harita bağlantıları
+    let m = s.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/) ||
+            s.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
+            s.match(/[?&](?:q|ll|query)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/);
+    if (m) return ok(num(m[1]), num(m[2]));
+
+    // 2) Yalnızca koordinata benzeyen karakterler kabul edilir
+    s = s.replace(/[′’´`‘]/g, "'").replace(/[″”“]/g, '"').replace(/[º˚]/g, '°').replace(/''/g, '"');
+    if (!/^[\s\d.,;:°'"+\-–—\/NSEWKGDBnsewkgdb]+$/.test(s)) return null;
+    s = s.replace(/[–—;\/]/g, ' ');
+
+    const hasSym = /[°'"]/.test(s);
+    const hasLet = /[NSEWKGDB]/i.test(s);
+
+    // 3) Ondalık: "37.0662, 37.3833"
+    if (!hasSym && !hasLet) {
+      const nums = s.match(/-?\d+(?:[.,]\d+)?/g);
+      if (nums && nums.length === 2) {
+        let a = num(nums[0]), b = num(nums[1]);
+        if (Math.abs(a) > 90 && Math.abs(b) <= 90) [a, b] = [b, a];
+        return ok(a, b);
+      }
+      return null;
+    }
+
+    // 4) Derece-dakika-saniye / harfli
+    const t = s.replace(/,\s+/g, ' ');
+    const N = '(\\d+(?:[.,]\\d+)?)';
+    const sfx = new RegExp(`(-?)${N}\\s*°?\\s*(?:${N}\\s*'?\\s*)?(?:${N}\\s*"?\\s*)?([NSEWKGDB])(?![A-Za-z])`, 'gi');
+    const pfx = new RegExp(`([NSEWKGDB])\\s*(-?)${N}\\s*°?\\s*(?:${N}\\s*'?\\s*)?(?:${N}\\s*"?\\s*)?`, 'gi');
+    const sym = new RegExp(`(-?)${N}\\s*°\\s*(?:${N}\\s*'\\s*)?(?:${N}\\s*"\\s*)?`, 'g');
+    const conv = (neg, d, mi, se) =>
+      (num(d) + (mi ? num(mi) / 60 : 0) + (se ? num(se) / 3600 : 0)) * (neg ? -1 : 1);
+    const isLat = L => /[NSKG]/.test(L);
+    const isNeg = L => /[SGWB]/.test(L);
+
+    let parts = [...t.matchAll(sfx)].map(x => ({ v: conv(x[1], x[2], x[3], x[4]), L: x[5].toUpperCase() }));
+    if (parts.length !== 2) {
+      parts = [...t.matchAll(pfx)].map(x => ({ v: conv(x[2], x[3], x[4], x[5]), L: x[1].toUpperCase() }));
+    }
+    if (parts.length === 2) {
+      parts.forEach(p => { p.v = isNeg(p.L) ? -Math.abs(p.v) : p.v; });
+      if (isLat(parts[0].L) && !isLat(parts[1].L)) return ok(parts[0].v, parts[1].v);
+      if (!isLat(parts[0].L) && isLat(parts[1].L)) return ok(parts[1].v, parts[0].v);
+      return null;
+    }
+    const sm = [...t.matchAll(sym)];
+    if (sm.length === 2) return ok(conv(sm[0][1], sm[0][2], sm[0][3], sm[0][4]), conv(sm[1][1], sm[1][2], sm[1][3], sm[1][4]));
+    return null;
+  }
+  // </parse>
+
+  /* =========================================================
+     3) MAKALE VERİSİ
+        Kaynak: Kaya, A., Uzun, Y., Karacan, H. İ., Yakar, S. (2019).
+        Contributions to the Macromycota of Gaziantep Province.
+        Kastamonu Üniv. Orman Fak. Dergisi, 19(3): 329-341.
+
+        - Koordinatlar makaledeki Tablo 1'den (derece-dakika) alınmıştır.
+        - Tür kategorileri (Y/Z/T/S/N) makalede tür bazında verilmemiştir;
+          genel mikolojik bilgiye göre atanmıştır. UZMAN DOĞRULAMASI GEREKİR.
+        - Y yenilebilir, Z zehirli, O ölümcül, T tıbbi, S şüpheli/belirsiz, N yenmez
+     ========================================================= */
+
+  // [no, ad, enlem°, enlem′, boylam°, boylam′, rakım m]
+  const LOC_RAW = [
+    [1,'Araban, Emirhaydar',37,30,37,42,850],[2,'Araban, Eskialtuntaş',37,24,37,41,513],
+    [3,'İslahiye, Alaca',36,59,36,49,1020],[4,'İslahiye, Altınüzüm',36,54,36,34,490],
+    [5,'İslahiye, Çubuk',36,59,36,48,800],[6,'İslahiye, Fevzipaşa',37,6,36,37,675],
+    [7,'İslahiye, Hanağzı',37,3,36,36,535],[8,'İslahiye, Hasanlök',36,54,36,30,815],
+    [9,'İslahiye, Kozdere',37,6,36,39,750],[10,'İslahiye, Tandır',36,57,37,31,695],
+    [11,'İslahiye, Tandır',36,58,36,29,1750],[12,'İslahiye, Tandır',36,57,37,29,1530],
+    [13,'Karkamış, Gürçay',36,53,38,1,340],[14,'Karkamış, Kelekli',36,55,37,59,340],
+    [15,'Karkamış, Yurtbağı',36,50,38,0,330],[16,'Nizip, Gökçeli',36,54,37,43,650],
+    [17,'Nizip, Mercanlı',36,56,37,46,493],[18,'Nizip, Sekili',36,58,37,40,600],
+    [19,'Nurdağı, Ataköy',37,8,36,54,985],[20,'Nurdağı, Atmalı',37,7,36,53,700],
+    [21,'Nurdağı, Atmalı',37,8,36,52,620],[22,'Nurdağı, Atmalı',37,7,36,53,700],
+    [23,'Nurdağı, Atmalı',37,7,36,51,715],[24,'Nurdağı, Bademli',37,13,36,45,610],
+    [25,'Nurdağı, Belpınar',37,12,36,46,540],[26,'Nurdağı, Belpınar',37,12,36,45,545],
+    [27,'Nurdağı, Hamidiye',37,6,36,53,810],[28,'Nurdağı, Hamidiye',37,5,36,53,800],
+    [29,'Nurdağı, İçerisu',37,9,36,50,580],[30,'Nurdağı, İncirli',37,14,36,59,600],
+    [31,'Nurdağı, Kırkpınar',37,3,36,51,920],[32,'Nurdağı, Kırkpınar',37,4,36,52,975],
+    [33,'Nurdağı, Kömürler',37,10,36,48,910],[34,'Nurdağı, Kömürler',37,9,36,48,535],
+    [35,'Nurdağı, Kuzoluk',36,4,36,54,1200],[36,'Nurdağı, Olucak',37,10,36,41,810],
+    [37,'Nurdağı, Olucak',37,10,36,40,950],[38,'Nurdağı, Olucak',37,9,36,40,980],
+    [39,'Nurdağı, Ökkeşiye',37,4,37,50,1010],[40,'Nurdağı, Sakçagöz',37,10,36,55,850],
+    [41,'Nurdağı, Tüllüce',37,9,36,51,590],[42,'Oğuzeli, merkez',36,58,37,30,700],
+    [43,'Oğuzeli, merkez',36,57,37,30,670],[44,'Oğuzeli, Karataş',36,53,37,33,627],
+    [45,'Oğuzeli, Yakacık',36,54,37,32,639],[46,'Oğuzeli, Yalnızbağ',36,59,37,26,782],
+    [47,'Şahinbey, Aslanlıbel',37,1,37,22,840],[48,'Şahinbey, merkez',37,3,37,21,865],
+    [49,'Şahinbey, Gaziantep Hayvanat Bahçesi',37,2,37,17,970],[50,'Şahinbey, Öğümsöğüt',37,7,37,17,1060],
+    [51,'Şahinbey, Yeşilkent',37,2,37,25,780],[52,'Şehitkamil, Atalar',37,11,36,1,1140],
+    [53,'Şehitkamil, Otogar',37,6,37,24,840],[54,'Şehitkamil, Cerityeniyapan',37,10,37,8,1070],
+    [55,'Şehitkamil, Durnalık',37,10,37,11,1000],[56,'Şehitkamil, Dülükbaba Mesire Alanı',37,6,37,19,1040],
+    [57,'Şehitkamil, Dülükbaba Mesire Alanı',37,7,37,19,1110],[58,'Şehitkamil, Yeşilce',37,10,37,12,1045],
+    [59,'Yavuzeli, Aşağıkekliktepe',37,17,37,36,830],[60,'Yavuzeli, Büyükkarakuyu',37,13,37,31,600],
+    [61,'Yavuzeli, Çimenli',37,16,37,34,710],[62,'Yavuzeli, Halilbaşlı',37,16,37,31,560],
+    [63,'Yavuzeli, Küçükkarakuyu',37,21,37,33,980],[64,'Yavuzeli, Sarıbuğdaylı',37,17,37,31,560]
+  ];
+  // Makaledeki koordinatı ilçe/komşu lokalitelerle çelişen ya da il sınırı dışında kalan lokaliteler
+  const FLAGGED = new Set([10, 12, 35, 39, 52]);
+
+  // [familya, [ [no, takson, kategori, ortam, [[lokalite, tarih, herbaryum no, (ortam), (hatalı lokalite yazımı)], …]], … ]]
+  const LIT_RAW = [
+    ['Patellariaceae', [
+      [1,'Patellaria atrata','N','Karışık ormanda, meşe (Quercus) dalcıkları üzerinde',[[36,'05.12.2014','10893']]]]],
+    ['Dermateaceae', [
+      [2,'Mollisia cinerea','N','Meşe dalı üzerinde',[[64,'13.04.2013','7906']]],
+      [3,'Mollisia ligni','N','Meşe dalcıkları üzerinde',[[37,'10.04.2015','11683']]],
+      [4,'Mollisia melaleuca','N','Meşe dalcıkları üzerinde',[[10,'02.05.2015','11868']]]]],
+    ['Helotiaceae', [
+      [5,'Ascocoryne cylichnium','N','Kayın (Fagus) dalcığı üzerinde',[[12,'19.10.2014','10080']]],
+      [6,'Cenangium ferruginosum','N','Ölü çam kabuğu üzerinde',[[36,'04.04.2015','11598']]],
+      [7,'Hymenoscyphus calyculus','N','Kayın dalcığı üzerinde',[[11,'01.11.2014','10452']]],
+      [8,'Hymenoscyphus fructigenus','N','Çürüyen meşe kupulaları üzerinde',[[62,'02.11.2014','10468'],[39,'07.11.2015','12720']]],
+      [9,'Hymenoscyphus herbarum','N','Ölü ot sapı üzerinde',[[50,'16.11.2014','10683'],[42,'13.12.2014','11068']]],
+      [10,'Hymenoscyphus serotinus','N','Kayın dalcığı üzerinde',[[11,'14.11.2015','12781']]]]],
+    ['Marthamycetaceae', [
+      [11,'Naemacyclus fimbriatus','N','Çam kozalakları üzerinde',[[8,'07.03.2014','8532']]]]],
+    ['Rutstroemiaceae', [
+      [12,'Rutstroemia firma','N','Çam dalcıkları üzerinde',[[36,'05.12.2014','10926']]]]],
+    ['Sclerotiniaceae', [
+      [13,'Ciboria rufofusca','N','Ölü köknar (Abies) kozalakları üzerinde',[[11,'26.04.2014','8877']]],
+      [14,'Sclerotinia sclerotiorum','N','Kavak (Populus) altında toprakta',[[62,'29.03.2015','11558']]]]],
+    ['Rhytismataceae', [
+      [15,'Lophodermium arundinaceum','N','Çam iğneleri üzerinde',[[30,'05.12.2014','10877']]],
+      [16,'Propolis farinosa','N','Meşe dalcıkları üzerinde',[[36,'05.12.2014','10892'],[39,'12.04.2015','11743']]]]],
+    ['Caloscyphaceae', [
+      [17,'Caloscypha fulgens','N','İğne yaprak döküntüsü arasında',[[37,'29.03.2013','7808']]]]],
+    ['Helvellaceae', [
+      [18,'Helvella acetabulum','S','Karışık ormanda yaprak döküntüsü arasında',[[40,'18.04.2015','11763'],[31,'18.04.2015','11768']]],
+      [19,'Helvella lacunosa','S','Karışık ormanda ot arasında',[[36,'10.04.2015','11672'],[20,'12.12.2014','10978']]],
+      [20,'Helvella leucomelaena','S','Çam iğneleri arasında',[[40,'29.03.2013','7831'],[37,'20.03.2015','11436'],[32,'12.04.2015','11741']]],
+      [21,'Helvella leucopus','S','Kavak altında ot arasında',[[21,'12.04.2015','11722']]],
+      [22,'Helvella macropus','S','Karışık ormanda ot arasında',[[11,'26.04.2014','8879']]],
+      [23,'Helvella monachella','S','Karışık ormanda ot arasında',[[27,'04.04.2015','11633']]],
+      [24,'Helvella queletii','S','Karışık ormanda yaprak döküntüsü arasında',[[7,'28.03.2015','11542']]]]],
+    ['Morchellaceae', [
+      [25,'Mitrophora semilibera','S','Ot arasında',[[47,'05.04.2013','7857']]],
+      [26,'Morchella deliciosa','Y','Çam ormanında ot arasında',[[56,'30.03.2013','7838'],[50,'06.04.2013','7867']]],
+      [27,'Morchella elata','Y','Karışık ormanda ot arasında',[[27,'04.04.2015','11636'],[33,'03.05.2015','11907']]],
+      [28,'Morchella esculenta','Y','Karışık ormanda ot arasında',[[36,'03.04.2015','11574'],[52,'17.04.2015','11758']]],
+      [29,'Verpa conica','S','Kavak altında ot arasında',[[62,'29.03.2015','11563']]]]],
+    ['Pezizaceae', [
+      [30,'Iodophanus carneus','N','Çürüyen gübre üzerinde',[[48,'24.12.2014','11119']]],
+      [31,'Peziza badia','N','Karışık ormanda ot arasında',[[10,'08.11.2014','10547']]],
+      [32,'Peziza cerea','N','Ot kalıntıları arasında',[[11,'01.11.2014','10458']]],
+      [33,'Peziza fimeti','N','Sığır gübresi üzerinde',[[9,'26.10.2014','10268']]],
+      [34,'Peziza pseudoviolacea','N','Karışık ormanda küllü alanda',[[11,'26.04.2014','8871']]],
+      [35,'Peziza vesiculosa','N','Karışık ormanda ot kalıntıları arasında',[[27,'04.04.2015','11637']]],
+      [36,'Peziza violacea','N','Küllü alanda',[[18,'28.02.2015','11354']]],
+      [37,'Sarcosphaera coronaria','Z','Karışık ormanda iğne yaprak döküntüsü arasında',[[12,'27.04.2013','7919']]],
+      [38,'Terfezia boudieri','Y','Toprak içinde, Helianthemum (güneşgülü) türleri arasında',[[17,'30.03.2013','7839']]]]],
+    ['Pyronemataceae', [
+      [39,'Cheilymenia fimicola','N','Sığır gübresi üzerinde',[[25,'09.03.2014','8606']]],
+      [40,'Cheilymenia theleboloides','N','Çürüyen hayvan kalıntıları üzerinde',[[7,'28.03.2015','11533']]],
+      [41,'Geopora arenicola','N','Kumlu toprakta, ot arasında',[[60,'20.04.2012','7418'],[30,'05.12.2014','10873']]],
+      [42,'Geopora arenosa','N','Meşe ormanında ot arasında',[[58,'12.04.2015','11704'],[21,'04.04.2015','11617']]],
+      [43,'Geopora sumneriana','N','Karışık ormanda ot arasında',[[20,'12.12.2014','10986']]],
+      [44,'Humaria hemisphaerica','N','Karışık ormanda ot arasında',[[38,'30.11.2014','10819']]],
+      [45,'Hypotarzetta insignis','N','Çam ormanında toprakta',[[35,'18.04.2015','11782']]],
+      [46,'Octospora grimmiae','N','Yosun arasında',[[56,'01.03.2015','11369']]],
+      [47,'Tarzetta catinus','N','Karışık ormanda toprakta',[[27,'04.04.2015','11627']]],
+      [48,'Tarzetta cupularis','N','Karışık ormanda toprakta',[[31,'18.04.2015','11770']]]]],
+    ['Tuberaceae', [
+      [49,'Tuber borchii','Y','Meşe altında toprak içinde',[[39,'24.10.2015','12541']]]]],
+    ['Valsaceae', [
+      [50,'Valsa sordida','N','Kavak kütüğü üzerinde',[[61,'09.03.2014','8550']]]]],
+    ['Nectriaceae', [
+      [51,'Dialonectria episphaeria','N','Meşe dalcıkları üzerindeki Diatrype üzerinde',[[36,'05.12.2014','10900'],[37,'20.03.2015','11438']]]]],
+    ['Diatrypaceae', [
+      [52,'Diatrype bullata','N','Ölü kayın dalcıkları üzerinde',[[11,'12.04.2014','8837']]],
+      [53,'Diatrype disciformis','N','Ölü kayın dalcıkları üzerinde',[[11,'12.04.2014','8808']]],
+      [54,'Diatrype stigma','N','Ölü kayın dalcıkları üzerinde',[[12,'02.05.2014','8917']]]]],
+    ['Agaricaceae', [
+      [55,'Agaricus bitorquis','Y','Ot arasında',[[49,'15.11.2015','12790']]],
+      [56,'Agaricus campestris','Y','Çayırlıkta',[[20,'05.12.2015','12810']]],
+      [57,'Agaricus moelleri','Z','Karışık ormanda toprakta',[[26,'26.10.2014','10251']]],
+      [58,'Agaricus sylvaticus','Y','Meşe ormanında ot arasında',[[36,'06.11.2015','12652']]],
+      [59,'Agaricus xanthodermus','Z','Orman açıklığında ot arasında',[[56,'24.11.2013','6536']]],
+      [60,'Battarrea phalloides','N','Ot arasında',[[43,'05.04.2015','11666']]],
+      [61,'Bovista aestivalis','S','Çam ormanında ot arasında',[[26,'08.11.2015','12761']]],
+      [62,'Bovista nigrescens','S','Ot arasında',[[36,'15.02.2015','8459']]],
+      [63,'Bovista plumbea','S','Karışık ormanda ot arasında',[[31,'18.04.2015','11772'],[3,'18.04.2015','11774']]],
+      [64,'Coprinus comatus','Y','Ot arasında',[[56,'03.01.2015','11138'],[36,'05.12.2014','10909'],[41,'03.04.2015','11575']]],
+      [65,'Crucibulum laeve','N','Ölü dalcıklar üzerinde',[[25,'07.12.2013','8457']]],
+      [66,'Cyathus olla','N','Odunsu parçacıklar ve gübre üzerinde',[[38,'30.11.2014','10838'],[34,'10.04.2015','11701']]],
+      [67,'Cyathus stercoreus','N','Sığır gübresi üzerinde',[[26,'26.10.2014','10263'],[28,'12.12.2014','11048']]],
+      [68,'Cystoderma amianthinum','S','Çam ormanında iğne yaprak döküntüsü arasında',[[28,'12.12.2014','11043']]],
+      [69,'Cystodermella cinnabarina','S','Çam ormanında iğne yaprak döküntüsü arasında',[[49,'10.11.2013','8277']]],
+      [70,'Leucoagaricus leucothites','S','Çam ormanı yakınında ot arasında',[[28,'06.11.2015','12677'],[23,'06.11.2015','12696']]],
+      [71,'Lycoperdon excipuliforme','Y','Karışık ormanda ot arasında',[[35,'18.04.2015','11780']]],
+      [72,'Lycoperdon molle','S','Çam ormanında ot arasında',[[38,'29.11.2013','8372'],[37,'06.11.2015','12657']]],
+      [73,'Lycoperdon perlatum','Y','Karışık ormanda yaprak-iğne döküntüsü arasında',[[26,'26.10.2014','10258'],[37,'06.11.2015','12658']]],
+      [74,'Lycoperdon pratense','Y','Meşe ormanında ot arasında',[[37,'06.11.2015','12649']]],
+      [75,'Macrolepiota excoriata','Y','Meşe ormanında ot arasında',[[26,'26.10.2014','10264']]],
+      [76,'Macrolepiota mastoidea','Y','Ot arasında',[[63,'02.12.2011','7336']]],
+      [77,'Macrolepiota procera','Y','Çam ormanında ot arasında',[[5,'18.10.2014','9987']]],
+      [78,'Tulostoma brumale','N','Meşe ormanında yosunlu ot arasında',[[54,'07.03.2015','11400'],[58,'12.04.2015','11712']]],
+      [79,'Tulostoma fimbriatum','N','Ot arasında',[[57,'01.03.2015','11368'],[43,'05.04.2015','11647']]],
+      [80,'Tulostoma melanocyclum','N','Karışık ormanda yosun arasında',[[58,'20.03.2015','11439']]]]],
+    ['Amanitaceae', [
+      [81,'Amanita excelsa','S','Meşe ormanında ot arasında',[[23,'06.11.2015','12692']]]]],
+    ['Bolbitiaceae', [
+      [82,'Bolbitius titubans','N','Kavak ve söğüt (Salix) altında ot arasında',[[62,'29.03.2015','11562']]],
+      [83,'Conocybe apala','N','Ot arasında',[[24,'03.12.2011','7351'],[16,'14.12.2014','11090']]],
+      [84,'Conocybe filaris','O','Çürüyen sığır gübresi üzerinde',[[28,'12.12.2014','11037']]],
+      [85,'Conocybe rickenii','S','Ot arasında',[[33,'03.05.2015','11905']]],
+      [86,'Galeropsis desertorum','N','Karışık ormanda ot arasında',[[41,'06.11.2015','12667'],[39,'07.11.2015','12718']]]]],
+    ['Cyphellaceae', [
+      [87,'Chondrostereum purpureum','N','Odun kalıntıları üzerinde',[[57,'10.11.2013','8273']]]]],
+    ['Entolomataceae', [
+      [88,'Entoloma rusticoides','S','Çam ormanında ot arasında',[[49,'15.11.2015','12802']]]]],
+    ['Hydnangiaceae', [
+      [89,'Laccaria laccata','Y','Karışık ormanda yaprak ve iğne döküntüsü arasında',[[11,'01.11.2014','10406']]]]],
+    ['Hygrophoraceae', [
+      [90,'Ampulloclitocybe clavipes','S','Çam ormanında ot arasında',[[24,'03.12.2011','7367']]],
+      [91,'Hygrocybe conica','S','Karışık ormanda ot arasında',[[38,'30.11.2014','10822']]]]],
+    ['Hymenogastraceae', [
+      [92,'Galerina graminea','S','Ot arasında',[[56,'30.11.2012','7634']]],
+      [93,'Galerina marginata','O','Çam ormanında ölü dalcık ve kütük üzerinde',[[24,'03.12.2011','7358']]]]],
+    ['Incertae sedis', [
+      [94,'Panaeolina foenisecii','S','Ot arasında',[[53,'24.10.2014','10096']]],
+      [95,'Panaeolus fimicola','S','Çam ormanında ot arasında',[[28,'12.12.2014','11035']]],
+      [96,'Panaeolus olivaceus','S','Ot arasında',[[33,'03.05.2015','11903']]]]],
+    ['Inocybaceae', [
+      [97,'Inocybe amblyospora','S','Çam ormanında iğne yaprak döküntüsü arasında',[[4,'21.03.2014','8716']]],
+      [98,'Inocybe bongardii','Z','Çam ormanında iğne yaprak döküntüsü arasında',[[34,'10.04.2015','11699']]],
+      [99,'Inocybe cincinnata','Z','Çam ormanında iğne yaprak döküntüsü arasında',[[9,'21.03.2014','8726']]],
+      [100,'Inocybe geophylla','Z','Karışık ormanda yaprak-iğne döküntüsü arasında',[[38,'30.11.2014','10820']]],
+      [101,'Inocybe rimosa','Z','Karışık ormanda ot arasında',[[12,'30.11.2013','8377']]],
+      [102,'Phaeomarasmius erinaceus','N','Meşe dalı üzerinde',[[12,'01.11.2014','10399']]]]],
+    ['Marasmiaceae', [
+      [103,'Calyptella capula','N','Meşe dalcıkları üzerinde',[[36,'05.12.2014','10927']]],
+      [104,'Henningsomyces candidus','N','Çam kütüğü üzerinde',[[4,'14.11.2014','10660']]],
+      [105,'Macrocystidia cucumis','N','Çam ormanında yaprak döküntüsü arasında',[[56,'30.11.2012','7636']]],
+      [106,'Marasmius anomalus','N','Ot arasında',[[6,'18.10.2014','9925'],[26,'14.12.2014','11101']]],
+      [107,'Marasmius epodius','N','Çam ormanında ot arasında',[[30,'05.12.2014','10866']]],
+      [108,'Marasmius oreades','Y','Ot arasında',[[12,'02.05.2014','8903']]],
+      [109,'Marasmius wynneae','N','Meşe altında yaprak döküntüsü arasında',[[61,'02.12.2012','7346']]]]],
+    ['Mycenaceae', [
+      [110,'Hemimycena lactea','N','Çürüyen iğne yaprak döküntüsü üzerinde',[[36,'05.12.2014','10910'],[24,'03.12.2011','7351']]],
+      [111,'Mycena crocata','S','Çürüyen odun kalıntıları üzerinde',[[11,'14.11.2015','12783']]],
+      [112,'Mycena pura','Z','Meşe çevresinde',[[26,'07.03.2014','8499']]],
+      [113,'Mycena rosea','Z','Çam ormanında iğne yaprak döküntüsü arasında',[[26,'26.10.2014','10259']]],
+      [114,'Mycena seynii','N','Çam kozalakları üzerinde',[[57,'16.11.2012','7508'],[36,'05.12.2014','10922']]],
+      [115,'Scytinotus violaceofulvus','N','Köknar dalcıkları üzerinde',[[11,'12.04.2014','8800']]],
+      [116,'Xeromphalina campanella','N','Ölü kütük üzerinde',[[37,'18.04.2010','7171']]],
+      [117,'Xeromphalina cauticinalis','N','İğne yaprak döküntüsü arasında',[[3,'30.11.2013','8400']]]]],
+    ['Niaceae', [
+      [118,'Lachnella alboviolascens','N','Ölü kavak dalcıkları üzerinde',[[51,'06.12.2014','10968']]]]],
+    ['Omphalotaceae', [
+      [119,'Gymnopus dryophilus','S','Karışık ormanda yaprak-iğne döküntüsü arasında',[[28,'06.11.2015','12669'],[39,'07.11.2015','12719']]],
+      [120,'Gymnopus erythropus','N','Çürüyen meşe yaprakları arasında',[[36,'05.12.2014','10896']]],
+      [121,'Gymnopus ocior','N','Karışık ormanda yaprak-iğne döküntüsü arasında',[[56,'16.11.2012','7507']]],
+      [122,'Gymnopus quercophilus','N','Çürüyen meşe yaprakları arasında',[[37,'10.04.2015','11689']]],
+      [123,'Omphalotus olearius','Z','Meşe kütüğü üzerinde',[[null,'07.11.2015','12699',null,'525']]]]],
+    ['Physalacriaceae', [
+      [124,'Armillaria borealis','S','Çürüyen kütük üzerinde',[[59,'16.02.2014','8497']]],
+      [125,'Armillaria mellea','S','Çürüyen kütük üzerinde',[[24,'03.12.2011','7370']]],
+      [126,'Strobilurus stephanocystis','N','Çam kozalakları üzerinde',[[24,'03.12.2011','7360']]],
+      [127,'Strobilurus tenacellus','N','Çam ormanında iğne yaprak döküntüsü arasında',[[24,'03.12.2011','7368']]]]],
+    ['Pleurotaceae', [
+      [128,'Hohenbuehelia petaloides','S','Yaprak ya da iğne yaprak döküntüsü arasında',[[1,'26.12.2009','6921','Meşe çevresinde yaprak döküntüsü arasında'],[24,'03.12.2011','7385','İğne yaprak döküntüsü arasında']]],
+      [129,'Pleurotus dryinus','Y','Söğüt kütüğü üzerinde',[[62,'02.11.2014','10512']]],
+      [130,'Pleurotus ostreatus','Y','Söğüt kütüğü üzerinde',[[42,'13.04.2013','7896'],[20,'12.04.2013','7875']]]]],
+    ['Pluteaceae', [
+      [131,'Pluteus romellii','N','Söğüt çevresinde toprakta',[[62,'19.05.2013','8450']]],
+      [132,'Volvopluteus gloiocephalus','S','Ot arasında',[[47,'25.11.2012','7620']]]]],
+    ['Psathyrellaceae', [
+      [133,'Coprinellus disseminatus','N','Kavak altında nemli toprakta',[[46,'13.04.2013','7880'],[43,'13.04.2013','7894']]],
+      [134,'Coprinellus ephemerus','N','Çam ormanı açıklığında ot arasında',[[25,'09.03.2014','8607'],[19,'22.03.2015','11493']]],
+      [135,'Coprinellus micaceus','S','Kavak kütüğü üzerinde',[[45,'30.03.2013','7844'],[46,'23.11.2013','8317']]],
+      [136,'Coprinopsis atramentaria','Z','Kavak kütüğü çevresinde',[[21,'12.04.2015','11723']]],
+      [137,'Coprinopsis lagopides','N','Sığır gübresi üzerinde',[[null,'18.04.2015','11764',null,'521']]],
+      [138,'Coprinopsis nivea','N','Çürüyen sığır gübresi üzerinde',[[31,'18.04.2015','11767']]],
+      [139,'Parasola plicatilis','N','Söğüt altında ot arasında',[[13,'25.10.2014','10220']]],
+      [140,'Psathyrella bipellis','N','Karışık ormanda yaprak döküntüsü arasında',[[22,'12.12.2014','10990']]],
+      [141,'Psathyrella candolleana','S','Kavak kalıntıları çevresinde',[[42,'21.04.2012','7439'],[33,'03.05.2015','11906']]]]],
+    ['Pterulaceae', [
+      [142,'Pterula multifida','N','Çam ormanında iğne yaprak döküntüsü arasında',[[28,'05.12.2015','12817']]]]],
+    ['Schizophyllaceae', [
+      [143,'Schizophyllum amplum','N','Ölü kavak dalcıkları üzerinde',[[15,'25.10.2014','10195']]],
+      [144,'Schizophyllum commune','N','Kütük üzerinde',[[25,'29.03.2013','7822'],[36,'15.02.2014','8462']]]]],
+    ['Strophariaceae', [
+      [145,'Agrocybe molesta','S','Ot arasında',[[53,'24.10.2014','10095']]],
+      [146,'Agrocybe pediades','S','Çam ormanı açıklığında ot arasında',[[32,'12.04.2015','11738']]],
+      [147,'Agrocybe vervacti','S','Ot arasında',[[49,'15.11.2015','12801']]],
+      [148,'Cyclocybe cylindracea','Y','Kavak kütüğü üzerinde',[[44,'30.03.2013','7842'],[26,'08.11.2015','12756'],[14,'08.03.2014','8549']]],
+      [149,'Hypholoma fasciculare','Z','Meşe kütüğü çevresinde',[[36,'05.12.2014','10921']]],
+      [150,'Protostropharia semiglobata','N','Ot arasında',[[49,'15.11.2015','12787']]],
+      [151,'Psilocybe coprophila','S','Çürüyen sığır gübresi üzerinde',[[25,'29.03.2013','7821'],[19,'22.03.2015','11499']]],
+      [152,'Stropharia aeruginosa','Z','Karışık ormanda ot arasında',[[23,'06.11.2015','12686'],[40,'07.11.2015','12704']]],
+      [153,'Stropharia coronilla','S','Çam veya karışık ormanda ot arasında',[[29,'19.10.2014','10021'],[30,'05.12.2014','10857']]]]],
+    ['Tricholomataceae', [
+      [154,'Arrhenia retiruga','N','Çam ormanında yosun arasında',[[61,'29.03.2015','11549']]],
+      [155,'Arrhenia rickenii','N','Meşe ormanında yosun arasında',[[30,'05.12.2014','10882']]],
+      [156,'Arrhenia spathulata','N','Yosun üzerinde',[[58,'12.04.2015','11717'],[20,'06.11.2015','12683'],[38,'30.11.2014','10812']]],
+      [157,'Clitopaxillus alexandri','S','Çam ormanında iğne yaprak döküntüsü arasında',[[24,'03.12.2011','7362']]],
+      [158,'Clitocybe gibba','S','Çam ormanında iğne yaprak döküntüsü arasında',[[36,'05.12.2014','10929']]],
+      [159,'Infundibulicybe geotropa','Y','Meşe ormanında yaprak döküntüsü arasında',[[23,'06.11.2015','12688']]],
+      [160,'Lepista nuda','Y','Çam, meşe ya da karışık ormanda yaprak veya iğne döküntüsü arasında',[[57,'30.03.2013','7837'],[26,'28.03.2015','11528']]],
+      [161,'Leucopaxillus gentianeus','S','Çam ormanında iğne yaprak döküntüsü arasında',[[11,'14.11.2015','12786']]],
+      [162,'Melanoleuca cognata','S','Karışık ormanda ot arasında',[[3,'18.04.2015','11775']]],
+      [163,'Melanoleuca exscissa','S','Çam ormanı açıklığında ot arasında',[[37,'10.04.2015','11690']]],
+      [164,'Melanoleuca polioleuca','S','Karışık ormanda ot arasında',[[36,'05.12.2014','10920'],[28,'12.12.2014','11041']]],
+      [165,'Melanoleuca stridula','S','Çam ormanında iğne yaprak döküntüsü arasında',[[26,'07.03.2014','8504']]],
+      [166,'Myxomphalia maura','N','İğne yaprak döküntüsü arasında',[[56,'16.11.2012','7501']]],
+      [167,'Pseudoclitocybe cyathiformis','S','Çam ormanında iğne yaprak döküntüsü arasında',[[20,'29.11.2014','10763'],[30,'05.12.2014','10878']]],
+      [168,'Resupinatus trichotis','N','Meşe dalcıkları üzerinde',[[27,'12.12.2014','11025']]],
+      [169,'Tricholoma terreum','Y','Çam ormanında iğne yaprak döküntüsü arasında',[[56,'16.11.2012','7506'],[57,'21.03.2014','8689'],[36,'05.12.2014','10916']]]]],
+    ['Tubariaceae', [
+      [170,'Tubaria conspersa','N','Yaprak döküntüsü arasında',[[32,'31.03.2013','7852']]]]],
+    ['Typhulaceae', [
+      [171,'Typhula fistulosa','N','Ot kalıntıları üzerinde',[[10,'08.11.2014','10554']]]]],
+    ['Auriculariaceae', [
+      [172,'Exidia glandulosa','N','Ölü meşe dalcıkları üzerinde',[[39,'12.04.2015','11742']]],
+      [173,'Exidia nigricans','N','Ölü meşe dalcıkları üzerinde',[[20,'12.12.2014','11004']]]]],
+    ['Boletaceae', [
+      [174,'Boletus edulis','Y','Karışık ormanda ot arasında',[[11,'24.10.2014','10183']]],
+      [175,'Boletus erythropus','S','Meşe ormanında ot arasında',[[39,'07.11.2015','12722']]],
+      [176,'Xerocomellus chrysenteron','Y','Karışık ormanda ot arasında',[[36,'06.11.2015','12695'],[39,'07.11.2015','12722']]]]],
+    ['Diplocystidiaceae', [
+      [177,'Astraeus hygrometricus','N','Karışık ormanda yaprak döküntüsü arasında',[[22,'12.12.2014','10995'],[27,'04.04.2015','11632']]]]],
+    ['Gomphidiaceae', [
+      [178,'Chroogomphus rutilus','Y','Çam ormanında iğne yaprak döküntüsü arasında',[[57,'30.11.2012','7626'],[22,'29.11.2014','10767']]]]],
+    ['Rhizopogonaceae', [
+      [179,'Rhizopogon luteolus','S','Çam ormanında toprak içinde',[[22,'29.11.2014','10765'],[19,'22.03.2015','11498'],[41,'03.04.2015','11577']]],
+      [180,'Rhizopogon roseolus','S','Çam ormanında toprak içinde',[[30,'05.12.2014','10875'],[32,'12.04.2015','11737']]]]],
+    ['Sclerodermataceae', [
+      [181,'Pisolithus arhizus','N','Meşe ormanında yaprak döküntüsü arasında',[[39,'24.10.2015','12542']]],
+      [182,'Scleroderma cepa','Z','Karışık ormanda ot arasında',[[4,'14.11.2014','10631']]],
+      [183,'Scleroderma verrucosum','Z','Ot arasında',[[51,'13.11.2015','12778']]]]],
+    ['Suillaceae', [
+      [184,'Suillus collinitus','Y','Çam ormanında iğne yaprak döküntüsü arasında',[[34,'10.04.2015','11697'],[32,'12.04.2015','11736']]],
+      [185,'Suillus granulatus','Y','Karışık ormanda ot arasında',[[27,'04.04.2015','11638']]],
+      [186,'Suillus luteus','Y','Çam ormanında iğne yaprak döküntüsü arasında',[[56,'16.11.2012','7495']]]]],
+    ['Tapinellaceae', [
+      [187,'Tapinella panuoides','S','Çürüyen kütük üzerinde',[[24,'03.12.2011','7405']]]]],
+    ['Clavulinaceae', [
+      [188,'Clavulina cinerea','S','Çam ormanında iğne yaprak döküntüsü arasında',[[12,'14.11.2014','10648']]]]],
+    ['Geastraceae', [
+      [189,'Geastrum minimum','N','Çam ormanında yosunlu toprakta',[[28,'12.12.2014','11044']]],
+      [190,'Geastrum pectinatum','N','Çam ormanında iğne yaprak döküntüsü arasında',[[12,'02.05.2014','8922']]],
+      [191,'Sphaerobolus stellatus','N','Meşe kalıntıları üzerinde',[[36,'05.12.2014','10902']]]]],
+    ['Gomphaceae', [
+      [192,'Gautieria trabutii','N','Meşe altında toprak içinde',[[null,'02.05.2014','8912',null,'151']]]]],
+    ['Hymenochaetaceae', [
+      [193,'Phellinus hartigii','N','Köknar kütüğü üzerinde',[[63,'13.04.2013','7897']]],
+      [194,'Phellinus pomaceus','N','Badem (Amygdalus) kütüğü üzerinde',[[26,'14.12.2014','11116']]]]],
+    ['Phallaceae', [
+      [195,'Phallus impudicus','S','Karışık ormanda ot arasında',[[4,'14.11.2014','10635']]]]],
+    ['Ganodermataceae', [
+      [196,'Ganoderma adspersum','N','Kütük üzerinde',[[43,'13.04.2013','7895']]],
+      [197,'Ganoderma lucidum','T','Çürüyen kütük üzerinde',[[46,'13.04.2013','7885'],[11,'12.04.2014','8834']]]]],
+    ['Meruliaceae', [
+      [198,'Bjerkandera adusta','N','Meşe kütüğü üzerinde',[[21,'12.04.2015','11720']]]]],
+    ['Phanerochaetaceae', [
+      [199,'Terana coerulea','N','Meşe dalcıkları üzerinde',[[20,'12.12.2014','10979']]]]],
+    ['Polyporaceae', [
+      [200,'Fomes fomentarius','T','Söğüt kütüğü üzerinde',[[46,'13.04.2013','7889']]],
+      [201,'Lentinus arcularius','N','Ölü dalcıklar üzerinde',[[null,'24.02.2010','7101',null,'A2']]],
+      [202,'Lentinus brumalis','N','Ölü dalcıklar üzerinde',[[20,'31.03.2013','7846']]],
+      [203,'Lentinus tigrinus','S','Kavak kütüğü çevresinde',[[46,'21.04.2014','7441']]],
+      [204,'Lenzites betulina','N','Çam kütüğü üzerinde',[[3,'18.04.2015','11773']]],
+      [205,'Royoporus badius','N','Ölü kayın dalcıkları üzerinde',[[11,'01.11.2014','10457']]],
+      [206,'Trametes hirsuta','N','Ölü meşe dalcıkları üzerinde',[[57,'30.03.2013','7838'],[7,'28.03.2015','11539'],[58,'12.04.2015','11715']]],
+      [207,'Trametes versicolor','T','Meşe kütüğü üzerinde',[[55,'12.04.2015','11716'],[3,'18.04.2015','11777']]]]],
+    ['Auriscalpiaceae', [
+      [208,'Lentinellus micheneri','N','Çam ormanında iğne yaprak döküntüsü arasında',[[24,'03.12.2011','7353']]]]],
+    ['Russulaceae', [
+      [209,'Lactarius deliciosus','Y','Karışık ormanda iğne yaprak döküntüsü arasında',[[24,'02.12.2011','7356'],[22,'29.11.2014','10766']]],
+      [210,'Lactarius torminosus','Z','Meşe ormanında ot arasında',[[40,'07.11.2015','12710']]],
+      [211,'Russula virescens','Y','Karışık ormanda iğne yaprak döküntüsü arasında',[[12,'01.11.2014','10376']]]]],
+    ['Stereaceae', [
+      [212,'Stereum hirsutum','N','Ölü meşe dalcıkları üzerinde',[[41,'31.03.2013','7845'],[22,'12.12.2014','11003'],[36,'04.04.2015','11603']]]]],
+    ['Bankeraceae', [
+      [213,'Hydnellum caeruleum','N','Çam ormanında iğne yaprak döküntüsü arasında',[[24,'03.12.2011','7372']]]]],
+    ['Thelephoraceae', [
+      [214,'Thelephora terrestris','N','Çam ormanında iğne yaprak döküntüsü arasında',[[38,'18.04.2010','7170']]]]],
+    ['Dacrymycetaceae', [
+      [215,'Calocera cornea','N','Ölü meşe kütüğü üzerinde',[[11,'01.11.2014','10440']]],
+      [216,'Dacrymyces capitatus','N','Meşe dalcıkları üzerinde',[[36,'05.12.2014','10907']]],
+      [217,'Dacrymyces stillatus','N','Meşe dalcıkları üzerinde',[[19,'22.03.2015','11480']]]]]
+  ];
+
+  // Makalede olmayan, yaygın Türkçe adlar (yöresel adlar bölgeye göre değişir)
+  const LOCAL_NAMES = {
+    'Boletus edulis': ['Porçini', 'Çörek Mantarı', 'Ayı Mantarı'],
+    'Lactarius deliciosus': ['Kanlıca', 'Kanlı Mantar', 'Çam Kanlıcası'],
+    'Morchella esculenta': ['Kuzugöbeği', 'Kuzu Göbeği', 'Morel'],
+    'Morchella elata': ['Kuzugöbeği'],
+    'Morchella deliciosa': ['Kuzugöbeği'],
+    'Macrolepiota procera': ['Şemsiye Mantarı', 'Parasol'],
+    'Pleurotus ostreatus': ['İstiridye Mantarı'],
+    'Agaricus campestris': ['Çayır Mantarı', 'Kır Şampinyonu'],
+    'Ganoderma lucidum': ['Reishi', 'Lingzhi'],
+    'Trametes versicolor': ['Hindi Kuyruğu'],
+    'Armillaria mellea': ['Bal Mantarı'],
+    'Cyclocybe cylindracea': ['Kavak Mantarı']
+  };
+  // Makaleye göre Gaziantep'te yöre halkınca toplanıp tüketilenler
+  const CONSUMED = new Set(['Agaricus campestris', 'Coprinus comatus', 'Lactarius deliciosus',
+                            'Pleurotus ostreatus', 'Terfezia boudieri', 'Tricholoma terreum']);
+
+  // --- Verileri kullanıma hazırla ---
+  const pad = n => String(n).padStart(2, '0');
+  const LOC = {};
+  LOC_RAW.forEach(([no, name, ld, lm, od, om, alt]) => {
+    LOC[no] = { no, name, lat: ld + lm / 60, lng: od + om / 60, alt,
+                printed: `${ld}°${pad(lm)}′ K – ${od}°${pad(om)}′ D`, flagged: FLAGGED.has(no) };
+  });
+
+  const LIT = [];
+  LIT_RAW.forEach(([family, items]) => items.forEach(([no, latin, c, habitat, occ]) => {
+    LIT.push({
+      no, latin, family, habitat, cat: CODE[c], names: LOCAL_NAMES[latin] || [],
+      occ: occ.map(o => ({ loc: o[0], date: o[1], voucher: o[2], habitat: o[3] || null, raw: o[4] || null }))
+    });
+  }));
+
+  // Form arama sözlüğü: makaledeki türler + birkaç yaygın tür
+  const EXTRA = [
+    { latin: 'Amanita muscaria',      names: ['Sinek Mantarı', 'Kırmızı Zehirli Mantar'],       cat: 'zehirli' },
+    { latin: 'Amanita phalloides',    names: ['Yeşil Ölüm Mantarı', 'Ölüm Şapkası'],            cat: 'olumcul' },
+    { latin: 'Cantharellus cibarius', names: ['Horoz Mantarı', 'Chanterelle', 'Tavuk Mantarı'], cat: 'yenilebilir' },
+    { latin: 'Hericium erinaceus',    names: ['Aslan Yelesi', 'Maymun Başı'],                   cat: 'tibbi' }
+  ];
+  const SPECIES = [
+    ...LIT.map(s => ({ latin: s.latin, names: s.names, cat: s.cat, lit: s })),
+    ...EXTRA
+  ];
+  const INDEX = SPECIES.flatMap(sp =>
+    [{ text: sp.latin, kind: 'latin' }, ...sp.names.map(n => ({ text: n, kind: 'local' }))]
+      .map(a => ({ ...a, norm: norm(a.text), sp })));
+
+  function searchSpecies(query, { limit = 6, only } = {}) {
+    const q = norm(query);
+    if (q.length < 2) return [];
+    const by = new Map();
+    for (const a of INDEX) {
+      if (only && !only(a.sp)) continue;
+      const pos = a.norm.indexOf(q);
+      if (pos === -1) continue;
+      const score = pos === 0 ? 0 : 1;
+      const prev = by.get(a.sp);
+      if (!prev || score < prev.score) by.set(a.sp, { sp: a.sp, matched: a, score });
+    }
+    return [...by.values()].sort((x, y) => x.score - y.score).slice(0, limit);
+  }
+
+  /* =========================================================
+     4) Depolama (MVP: localStorage → sonra IndexedDB + senkron)
+     ========================================================= */
+  const KEY = 'mantarHaritasi.v1';
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
+  const persist = list => { try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch { return false; } };
+  let records = load();
+
+  /* =========================================================
+     5) Harita
+     ========================================================= */
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  const map = L.map('map', { zoomControl: false }).setView([37.1, 37.1], 9);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+
+  const userLayer = L.layerGroup().addTo(map);
+  const litCluster = L.markerClusterGroup({
+    showCoverageOnHover: false, maxClusterRadius: 42, spiderfyOnMaxZoom: true,
+    iconCreateFunction: c => {
+      const n = c.getChildCount(), d = n < 10 ? 34 : n < 40 ? 42 : 50;
+      return L.divIcon({ html: `<div class="cl" style="width:${d}px;height:${d}px">${n}</div>`, className: '', iconSize: [d, d] });
+    }
+  }).addTo(map);
+  let tempMarker = null;
+
+  const pinSvg = color => `
+    <svg class="pin" width="30" height="40" viewBox="0 0 30 40" aria-hidden="true">
+      <path d="M15 1C7.3 1 1 7.2 1 14.8 1 25 15 39 15 39s14-14 14-24.2C29 7.2 22.7 1 15 1z" fill="${color}" stroke="#fff" stroke-width="2"/>
+      <circle cx="15" cy="15" r="5.5" fill="#fff"/>
+    </svg>`;
+  const pinIcon = (color, temp = false) => L.divIcon({
+    className: '', html: temp ? pinSvg(color).replace('class="pin"', 'class="pin temp"') : pinSvg(color),
+    iconSize: [30, 40], iconAnchor: [15, 39], popupAnchor: [0, -34]
+  });
+  // Makale kayıtları: daha küçük, elmas işaretli pin (kullanıcı pininden ayırt edilir)
+  const litIcon = color => L.divIcon({
+    className: '',
+    html: `<svg class="pin" width="24" height="32" viewBox="0 0 30 40" aria-hidden="true">
+      <path d="M15 1C7.3 1 1 7.2 1 14.8 1 25 15 39 15 39s14-14 14-24.2C29 7.2 22.7 1 15 1z" fill="${color}" stroke="#fff" stroke-width="2.5"/>
+      <rect x="10" y="10" width="10" height="10" transform="rotate(45 15 15)" fill="#fff"/></svg>`,
+    iconSize: [24, 32], iconAnchor: [12, 31], popupAnchor: [0, -27]
+  });
+  const targetIcon = L.divIcon({
+    className: '',
+    html: `<svg class="target" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+      <circle cx="18" cy="18" r="11" fill="rgba(31,59,52,.12)" stroke="#1f3b34" stroke-width="2.5"/>
+      <path d="M18 2v9M18 25v9M2 18h9M25 18h9" stroke="#1f3b34" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="18" cy="18" r="2.5" fill="#1f3b34"/></svg>`,
+    iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -16]
+  });
+
+  /* =========================================================
+     6) Filtreler
+     ========================================================= */
+  const visible = new Set(Object.keys(CATS));
+  let litOn = true;
+  const filtersEl = $('filters');
+  const catChips = {};
+
+  const litChip = el('button', 'chip lit'); litChip.type = 'button'; litChip.setAttribute('aria-pressed', 'true');
+  litChip.title = 'Kaya ve ark. (2019) Gaziantep makalesindeki kayıtlar';
+  litChip.innerHTML = '<span>Gaziantep makalesi</span> <span class="n"></span>';
+  litChip.addEventListener('click', () => setLit(!litOn));
+  filtersEl.appendChild(litChip);
+  const sep = el('span', 'sep'); filtersEl.appendChild(sep);
+
+  for (const [key, c] of Object.entries(CATS)) {
+    const b = el('button', 'chip'); b.type = 'button'; b.setAttribute('aria-pressed', 'true');
+    b.style.setProperty('--c', c.color);
+    b.innerHTML = `<span class="dot"></span><span>${c.label}</span>`;
+    b.addEventListener('click', () => {
+      visible.has(key) ? visible.delete(key) : visible.add(key);
+      b.setAttribute('aria-pressed', String(visible.has(key)));
+      renderAll();
+    });
+    catChips[key] = b;
+    filtersEl.appendChild(b);
+  }
+  function setLit(on) {
+    litOn = on; litChip.setAttribute('aria-pressed', String(on)); renderLit();
+  }
+  function ensureVisible(cat) {
+    if (!visible.has(cat)) { visible.add(cat); catChips[cat].setAttribute('aria-pressed', 'true'); }
+    if (!litOn) { litOn = true; litChip.setAttribute('aria-pressed', 'true'); }
+    renderAll();
+  }
+
+  /* =========================================================
+     7) Makale kayıtlarını haritaya koy
+     ========================================================= */
+  const fmtDate = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
+  const trDate = s => { const [d, m, y] = s.split('.').map(Number); return new Date(y, m - 1, d).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }); };
+  const lower = s => s.charAt(0).toLocaleLowerCase('tr') + s.slice(1);
+  const titleOf = sp => (sp.names && sp.names[0]) || sp.latin;
+
+  const litMarkers = [];
+  const unlocated = [];
+  LIT.forEach(sp => sp.occ.forEach(o => {
+    const l = LOC[o.loc];
+    if (!l) { unlocated.push({ sp, o }); return; }
+    const m = L.marker([l.lat, l.lng], { icon: litIcon(CATS[sp.cat].color), title: titleOf(sp), cat: sp.cat });
+    m.sp = sp; m.occ = o; m.loc = l;
+    m.bindPopup(() => litPopup(sp, o, l), { maxWidth: 290 });
+    litMarkers.push(m);
+  }));
+
+  function litPopup(sp, o, l) {
+    const c = CATS[sp.cat];
+    const root = el('div', 'pop'); root.style.setProperty('--c', c.color);
+    root.appendChild(el('h3', '', titleOf(sp)));
+    const sub = el('p', 'latin');
+    sub.textContent = sp.names.length ? `${sp.latin} · ${sp.family}` : `${sp.family}`;
+    if (!sp.names.length) { sub.style.fontStyle = 'normal'; sub.textContent = ''; const i = el('i', '', sp.latin); sub.append(i, ` · ${sp.family}`); }
+    root.appendChild(sub);
+
+    const badges = el('div', 'badges');
+    badges.append(el('span', 'badge', c.label), el('span', 'badge src', 'Makale kaydı'));
+    root.appendChild(badges);
+
+    const habitat = o.habitat || sp.habitat;
+    root.appendChild(el('p', 'note',
+      `${sp.latin}, ${l.name} lokalitesinde (${l.alt} m) ${trDate(o.date)} tarihinde toplanmış; ${lower(habitat)} kaydedilmiştir.`));
+
+    const dl = el('dl');
+    const row = (k, v) => dl.append(el('dt', '', k), el('dd', '', v));
+    row('Lokalite', `${l.no}. ${l.name}`);
+    row('Rakım', `${l.alt} m`);
+    row('Tarih', trDate(o.date));
+    row('Ortam', habitat);
+    row('Herbaryum', `K.${o.voucher}`);
+    row('Koordinat', l.printed);
+    root.appendChild(dl);
+
+    if (CONSUMED.has(sp.latin)) {
+      root.appendChild(el('p', 'note', sp.latin === 'Terfezia boudieri'
+        ? 'Makaleye göre bölgede toplanıp tüketilir ve yerel ekonomik öneme sahiptir.'
+        : 'Makaleye göre bölgede yöre halkınca toplanıp tüketilen türlerden biridir.'));
+    }
+    if (l.flagged) {
+      root.appendChild(el('p', 'warn', 'Makaledeki bu lokalite koordinatı, ilçe adı ya da komşu lokalitelerle çelişiyor (basım hatası olabilir). Pin, makalede yazıldığı gibi konmuştur; doğrulanmalıdır.'));
+    }
+    root.appendChild(el('p', 'srcnote',
+      'Kaynak: Kaya vd. (2019), Kastamonu Üniv. Orman Fak. Dergisi 19(3): 329-341. ' +
+      'Konum lokalite düzeyindedir (dakika hassasiyeti), tam bulunma noktası değildir. ' +
+      'Kategori makalede tür bazında verilmemiştir; genel bilgiye göre atanmıştır ve doğrulanmalıdır. Bu bilgiye dayanarak mantar tüketmeyin.'));
+    return root;
+  }
+
+  function localityPopup(l) {
+    const root = el('div', 'pop');
+    root.appendChild(el('h3', '', `${l.no}. ${l.name}`));
+    root.appendChild(el('p', 'coord', `${l.printed} · ${l.alt} m`));
+    const here = litMarkers.filter(m => m.loc === l);
+    root.appendChild(el('p', 'note', `Makalede bu lokalitede ${here.length} kayıt var.`));
+    if (l.flagged) root.appendChild(el('p', 'warn', 'Bu lokalitenin koordinatı makalede tutarsız görünüyor; doğrulanmalıdır.'));
+    const ul = el('ul', 'sp');
+    here.sort((a, b) => a.sp.latin.localeCompare(b.sp.latin)).forEach(m => {
+      const li = el('li'); li.style.setProperty('--c', CATS[m.sp.cat].color);
+      li.append(el('span', 'd'), el('span', '', titleOf(m.sp) + (m.sp.names.length ? ` (${m.sp.latin})` : '')));
+      li.addEventListener('click', () => { ensureVisible(m.sp.cat); litCluster.zoomToShowLayer(m, () => m.openPopup()); });
+      ul.appendChild(li);
+    });
+    root.appendChild(ul);
+    return root;
+  }
+
+  function renderLit() {
+    litCluster.clearLayers();
+    const shown = litMarkers.filter(m => visible.has(m.options.cat));
+    if (litOn) litCluster.addLayers(shown);
+    litChip.querySelector('.n').textContent = `· ${shown.length}`;
+  }
+
+  /* =========================================================
+     8) Kullanıcı kayıtları
+     ========================================================= */
+  const userMarkers = {};
+  function displayName(r) { return r.localName || r.latin || 'Adı bilinmeyen mantar'; }
+
+  function popupNode(r) {
+    const c = CATS[r.cat] || CATS.supheli;
+    const root = el('div', 'pop'); root.style.setProperty('--c', c.color);
+    if (r.photo) { const img = el('img'); img.src = r.photo; img.alt = displayName(r); root.appendChild(img); }
+    root.appendChild(el('h3', '', displayName(r)));
+    root.appendChild(el('p', 'latin', r.latin || (r.status === 'unknown' ? 'Tespit edilmeyi bekliyor' : 'Latince adı bilinmiyor')));
+    const badges = el('div', 'badges'); badges.appendChild(el('span', 'badge', c.label)); root.appendChild(badges);
+    const dl = el('dl');
+    const row = (k, v) => dl.append(el('dt', '', k), el('dd', '', v));
+    row('Tarih', fmtDate(r.date));
+    if (r.habitat) row('Ortam', r.habitat);
+    root.appendChild(dl);
+    if (r.notes) root.appendChild(el('p', 'note', r.notes));
+    const del = el('button', 'del', 'Kaydı sil'); del.type = 'button';
+    del.addEventListener('click', () => {
+      if (!confirm('Bu kayıt silinsin mi?')) return;
+      records = records.filter(x => x.id !== r.id);
+      persist(records); map.closePopup(); renderUser(); toast('Kayıt silindi');
+    });
+    root.appendChild(del);
+    return root;
+  }
+
+  function renderUser() {
+    userLayer.clearLayers();
+    for (const k in userMarkers) delete userMarkers[k];
+    for (const r of records) {
+      if (!visible.has(r.cat)) continue;
+      const m = L.marker([r.lat, r.lng], { icon: pinIcon((CATS[r.cat] || CATS.supheli).color), title: displayName(r) })
+        .bindPopup(() => popupNode(r)).addTo(userLayer);
+      userMarkers[r.id] = m;
+    }
+  }
+  function renderAll() { renderUser(); renderLit(); }
+  renderAll();
+
+  /* =========================================================
+     9) Konum: "Konumum" ve izin
+     ========================================================= */
+  let meLayer = null;
+
+  function coordPopup(ll, label) {
+    const root = el('div', 'pop');
+    root.appendChild(el('h3', '', label || 'Seçilen nokta'));
+    root.appendChild(el('p', 'coord', `${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`));
+    const acts = el('div', 'acts');
+    const add = el('button', 'btn small', 'Buraya mantar ekle'); add.type = 'button';
+    add.addEventListener('click', () => { map.closePopup(); openForm(ll); });
+    const copy = el('button', 'btn small ghost', 'Kopyala'); copy.type = 'button';
+    copy.addEventListener('click', () => copyText(`${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`));
+    const a = el('a', 'lnk', 'Haritalar\'da aç'); a.target = '_blank'; a.rel = 'noopener';
+    a.href = `https://www.google.com/maps?q=${ll.lat},${ll.lng}`;
+    acts.append(add, copy, a);
+    root.appendChild(acts);
+    return root;
+  }
+
+  function copyText(t) {
+    const done = () => toast('Koordinat kopyalandı');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, () => toast(t));
+    else toast(t);
+  }
+
+  function showMe(ll, acc) {
+    if (meLayer) map.removeLayer(meLayer);
+    const ring = L.circle(ll, { radius: acc, color: '#2f6fb5', weight: 1, fillColor: '#2f6fb5', fillOpacity: .12, interactive: false });
+    const dot = L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#2f6fb5', fillOpacity: 1 });
+    dot.bindPopup(() => coordPopup(ll, `Buradasın (±${Math.round(acc)} m)`));
+    meLayer = L.layerGroup([ring, dot]).addTo(map);
+  }
+
+  function locateMe({ onFix, fly = true, quiet = false } = {}) {
+    if (!('geolocation' in navigator)) { toast('Bu tarayıcı konum özelliğini desteklemiyor'); return; }
+    if (!quiet) toast('Konum alınıyor…');
+    navigator.geolocation.getCurrentPosition(pos => {
+      hideToast();
+      const ll = L.latLng(pos.coords.latitude, pos.coords.longitude), acc = pos.coords.accuracy;
+      showMe(ll, acc);
+      if (fly) map.flyTo(ll, acc > 1500 ? 12 : Math.max(map.getZoom(), 16));
+      if (onFix) onFix(ll);
+    }, err => {
+      if (quiet) return;
+      const extra = (!window.isSecureContext) ? ' Sayfa https veya localhost üzerinden açılmalı.' : '';
+      toast(err.code === 1
+        ? 'Konum izni verilmedi. Tarayıcı ayarlarından izin verebilir ya da haritadan nokta seçebilirsin.' + extra
+        : err.code === 3 ? 'Konum zaman aşımına uğradı. Açık alanda tekrar dene.'
+        : 'Konum belirlenemedi. GPS ya da konum servisi açık mı?' + extra);
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+  }
+
+  // Haritanın sağ üstüne "Konumum" düğmesi
+  const LocateCtl = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd() {
+      const c = L.DomUtil.create('div', 'leaflet-bar');
+      const a = L.DomUtil.create('a', 'loc', c);
+      a.href = '#'; a.title = 'Konumumu bul'; a.setAttribute('role', 'button'); a.setAttribute('aria-label', 'Konumumu bul');
+      a.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>';
+      L.DomEvent.disableClickPropagation(c);
+      L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); locateMe(); });
+      return c;
+    }
+  });
+  new LocateCtl().addTo(map);
+
+  // Kullanıcı izin verdiyse sessizce konumu göster; sormadıysak nazikçe iste
+  const permEl = $('perm');
+  const askedKey = 'mantarHaritasi.locAsked';
+  const asked = () => { try { return localStorage.getItem(askedKey) === '1'; } catch { return false; } };
+  const markAsked = () => { try { localStorage.setItem(askedKey, '1'); } catch {} };
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then(p => {
+      if (p.state === 'granted') locateMe({ quiet: true, fly: false });
+      else if (p.state === 'prompt' && !asked()) { permEl.hidden = false; $('hint').hidden = true; }
+    }).catch(() => {});
+  }
+  $('permYes').addEventListener('click', () => { permEl.hidden = true; markAsked(); $('hint').hidden = false; locateMe(); });
+  $('permNo').addEventListener('click', () => { permEl.hidden = true; markAsked(); $('hint').hidden = false; });
+
+  /* =========================================================
+     10) ARAMA: koordinat, yer adı, mantar adı, lokalite
+     ========================================================= */
+  const qEl = $('q'), resEl = $('results'), clearQ = $('clearQ');
+  let items = [], act = -1, searchMarker = null;
+
+  function goTo(lat, lng, { label, zoom = 17, bbox } = {}) {
+    const ll = L.latLng(lat, lng);
+    if (bbox && bbox.length === 4) map.flyToBounds([[+bbox[0], +bbox[2]], [+bbox[1], +bbox[3]]], { maxZoom: 16 });
+    else map.flyTo(ll, Math.max(zoom, 15));
+    if (searchMarker) map.removeLayer(searchMarker);
+    searchMarker = L.marker(ll, { icon: targetIcon, zIndexOffset: 900 }).addTo(map)
+      .bindPopup(() => coordPopup(ll, label));
+    setTimeout(() => searchMarker && searchMarker.openPopup(), 700);
+  }
+
+  function showSpecies(sp) {
+    const lit = sp.lit;
+    if (!lit) { toast('Bu tür makalede yok; yalnızca form sözlüğünde var.'); return; }
+    const ms = litMarkers.filter(m => m.sp === lit);
+    if (!ms.length) {
+      const raw = lit.occ.map(o => o.raw).filter(Boolean).join(', ');
+      toast(`${lit.latin} makalede var, ama lokalite numarası (“${raw}”) hatalı yazılmış; haritaya konamadı.`);
+      return;
+    }
+    ensureVisible(lit.cat);
+    if (ms.length === 1) litCluster.zoomToShowLayer(ms[0], () => ms[0].openPopup());
+    else { map.fitBounds(L.latLngBounds(ms.map(m => m.getLatLng())).pad(0.35), { maxZoom: 15 }); toast(`${titleOf(lit)}: ${ms.length} kayıt`); }
+  }
+
+  function showLocality(l) {
+    map.flyTo([l.lat, l.lng], 14);
+    L.popup({ maxWidth: 290 }).setLatLng([l.lat, l.lng]).setContent(localityPopup(l)).openOn(map);
+  }
+
+  async function geocode(q) {
+    toast('Yer aranıyor…');
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=tr&q=' + encodeURIComponent(q));
+      const j = await r.json();
+      hideToast();
+      if (!j.length) { toast('Yer bulunamadı. Koordinat yazmayı dene.'); return; }
+      items = j.map(p => ({
+        tag: 'Yer', title: p.name || p.display_name.split(',')[0], sub: p.display_name,
+        run: () => goTo(+p.lat, +p.lon, { label: p.name || p.display_name.split(',')[0], zoom: 14, bbox: p.boundingbox })
+      }));
+      drawResults();
+    } catch { toast('Yer araması için internet bağlantısı gerekir.'); }
+  }
+
+  function buildItems(v) {
+    const out = [];
+    const c = parseCoords(v);
+    if (c) out.push({ tag: 'Koordinat', title: `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`, sub: 'Bu noktaya git ve işaretle', run: () => goTo(c.lat, c.lng) });
+
+    searchSpecies(v, { limit: 5, only: sp => sp.lit }).forEach(r => {
+      const n = r.sp.lit.occ.length, located = r.sp.lit.occ.filter(o => o.loc != null).length;
+      out.push({
+        tag: 'Mantar', dot: CATS[r.sp.cat].color,
+        title: r.matched.text,
+        sub: `${r.sp.latin}${r.sp.names.length ? ' · ' + r.sp.names.slice(0, 2).join(', ') : ''} · ${located ? located + ' kayıt' : 'konum belirsiz'}`,
+        run: () => showSpecies(r.sp)
+      });
+    });
+
+    const nq = norm(v);
+    if (nq.length >= 2) {
+      records.filter(r => norm(displayName(r) + ' ' + (r.latin || '')).includes(nq)).slice(0, 3).forEach(r => {
+        out.push({ tag: 'Kaydım', dot: (CATS[r.cat] || CATS.supheli).color, title: displayName(r), sub: fmtDate(r.date),
+          run: () => { map.flyTo([r.lat, r.lng], 16); setTimeout(() => userMarkers[r.id] && userMarkers[r.id].openPopup(), 600); } });
+      });
+      Object.values(LOC).filter(l => norm(l.name).includes(nq)).slice(0, 4).forEach(l => {
+        out.push({ tag: 'Lokalite', title: `${l.no}. ${l.name}`, sub: `${l.printed} · ${l.alt} m`, run: () => showLocality(l) });
+      });
+    }
+    if (v.length >= 3 && !c) out.push({ tag: 'Yer', title: `“${v}” için yer ara`, sub: 'Köy, ilçe, adres… (internet gerekir)', run: () => geocode(v), keepOpen: true });
+    return out;
+  }
+
+  function drawResults() {
+    resEl.innerHTML = '';
+    items.forEach((it, i) => {
+      const li = el('li'); li.setAttribute('role', 'option'); li.dataset.i = i;
+      const main = el('span', 'r-main');
+      if (it.dot) { const d = el('span', 'r-dot'); d.style.setProperty('--c', it.dot); main.appendChild(d); }
+      main.appendChild(el('span', '', it.title));
+      li.append(main, el('span', 'r-tag', it.tag), el('span', 'r-sub', it.sub));
+      li.addEventListener('mousedown', e => { e.preventDefault(); choose(i); });
+      resEl.appendChild(li);
+    });
+    resEl.hidden = items.length === 0;
+    qEl.setAttribute('aria-expanded', String(items.length > 0));
+    act = -1;
+  }
+  function closeResults() { resEl.hidden = true; resEl.innerHTML = ''; items = []; act = -1; qEl.setAttribute('aria-expanded', 'false'); }
+  function choose(i) {
+    const it = items[i]; if (!it) return;
+    if (!it.keepOpen) { closeResults(); qEl.blur(); }
+    it.run();
+  }
+
+  qEl.addEventListener('input', () => {
+    const v = qEl.value.trim();
+    clearQ.hidden = !qEl.value;
+    if (v.length < 2) { closeResults(); return; }
+    items = buildItems(v); drawResults();
+  });
+  qEl.addEventListener('focus', () => { if (qEl.value.trim().length >= 2) { items = buildItems(qEl.value.trim()); drawResults(); } });
+  qEl.addEventListener('blur', () => setTimeout(closeResults, 150));
+  qEl.addEventListener('keydown', e => {
+    const lis = [...resEl.children];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!lis.length) return; e.preventDefault();
+      act = (act + (e.key === 'ArrowDown' ? 1 : -1) + lis.length) % lis.length;
+      lis.forEach((li, i) => li.setAttribute('aria-selected', String(i === act)));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!items.length) items = buildItems(qEl.value.trim());
+      choose(act >= 0 ? act : 0);
+    } else if (e.key === 'Escape') { closeResults(); }
+  });
+  clearQ.addEventListener('click', () => {
+    qEl.value = ''; clearQ.hidden = true; closeResults();
+    if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
+    qEl.focus();
+  });
+
+  /* =========================================================
+     11) Mantar ekleme formu
+     ========================================================= */
+  const sheet = $('sheet'), nameInput = $('nameInput'), suggestEl = $('suggest'),
+        matchEl = $('match'), matchText = $('matchText'), unknownEl = $('unknown'),
+        dateEl = $('date'), habitatEl = $('habitat'), notesEl = $('notes'),
+        photoEl = $('photo'), previewEl = $('preview'), coordsEl = $('coords');
+
+  let draft = null, matched = null, photoData = '', activeIdx = -1, results = [];
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  function currentCat() { return document.querySelector('input[name="cat"]:checked').value; }
+  function setCat(v) { const r = document.querySelector(`input[name="cat"][value="${v}"]`); if (r) { r.checked = true; refreshTempColor(); } }
+  function refreshTempColor() { if (tempMarker) tempMarker.setIcon(pinIcon(CATS[currentCat()].color, true)); }
+  document.querySelectorAll('input[name="cat"]').forEach(r => r.addEventListener('change', refreshTempColor));
+
+  function setDraft(ll) {
+    draft = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) };
+    coordsEl.textContent = `${draft.lat.toFixed(5)}, ${draft.lng.toFixed(5)}`;
+    if (!tempMarker) {
+      tempMarker = L.marker(ll, { icon: pinIcon(CATS[currentCat()].color, true), draggable: true, zIndexOffset: 1000 }).addTo(map);
+      tempMarker.on('dragend', () => setDraft(tempMarker.getLatLng()));
+    } else tempMarker.setLatLng(ll);
+  }
+
+  function openForm(ll) {
+    resetForm(); setDraft(ll);
+    sheet.classList.add('open');
+    $('fabLocate').hidden = true; $('hint').hidden = true; permEl.hidden = true;
+  }
+  function closeForm() {
+    sheet.classList.remove('open');
+    if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
+    draft = null; hideSuggest();
+    $('fabLocate').hidden = false; $('hint').hidden = false;
+  }
+  function resetForm() {
+    $('form').reset();
+    dateEl.value = today(); dateEl.max = today();
+    matched = null; photoData = ''; previewEl.hidden = true; previewEl.removeAttribute('src');
+    matchEl.hidden = true; nameInput.disabled = false;
+    setCat('supheli'); hideSuggest();
+  }
+
+  // Açık bir popup'ı kapatan dokunuş yeni kayıt başlatmasın
+  let lastPopupClose = 0;
+  map.on('popupclose', () => { lastPopupClose = Date.now(); });
+  map.on('click', e => {
+    if (Date.now() - lastPopupClose < 300) return;
+    if (sheet.classList.contains('open')) setDraft(e.latlng); else openForm(e.latlng);
+  });
+
+  $('fabLocate').addEventListener('click', () => locateMe({ onFix: ll => openForm(ll) }));
+  $('useGps').addEventListener('click', () => locateMe({ onFix: ll => { setDraft(ll); } }));
+  $('closeSheet').addEventListener('click', closeForm);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheet.classList.contains('open') && suggestEl.hidden) closeForm(); });
+
+  /* ---- Ad arama / öneri (form) ---- */
+  function hideSuggest() { suggestEl.hidden = true; suggestEl.innerHTML = ''; nameInput.setAttribute('aria-expanded', 'false'); activeIdx = -1; results = []; }
+
+  function showSuggest() {
+    const q = nameInput.value.trim();
+    if (q.length < 2 || matched) { hideSuggest(); return; }
+    results = searchSpecies(q);
+    suggestEl.innerHTML = '';
+    results.forEach((res, i) => {
+      const li = document.createElement('li'); li.setAttribute('role', 'option'); li.dataset.i = i;
+      const main = el('span', 's-main');
+      const dot = el('span', 's-dot'); dot.style.background = CATS[res.sp.cat].color;
+      main.append(dot, el('span', '', res.matched.text));
+      const others = res.sp.names.filter(n => n !== res.matched.text);
+      const sub = el('span', 's-sub', res.matched.kind === 'latin'
+        ? (res.sp.names.join(', ') || 'Yöresel adı kayıtlı değil')
+        : `${res.sp.latin}${others.length ? ' · ' + others.join(', ') : ''}`);
+      li.append(main, sub);
+      li.addEventListener('mousedown', e => { e.preventDefault(); pick(res); });
+      suggestEl.appendChild(li);
+    });
+    const li = document.createElement('li'); li.setAttribute('role', 'option'); li.dataset.i = results.length;
+    li.append(el('span', 's-main s-new', `“${q}” adıyla ekle`), el('span', 's-sub', 'Listede yok. Yöresel ad olarak kaydedilir.'));
+    li.addEventListener('mousedown', e => { e.preventDefault(); hideSuggest(); });
+    suggestEl.appendChild(li);
+    suggestEl.hidden = false; nameInput.setAttribute('aria-expanded', 'true'); activeIdx = -1;
+  }
+
+  function pick(res) {
+    matched = res.sp;
+    nameInput.value = res.matched.kind === 'local' ? res.matched.text : (res.sp.names[0] || res.sp.latin);
+    nameInput.dataset.typed = res.matched.text;
+    matchText.innerHTML = '';
+    const em = el('em', '', res.sp.latin);
+    matchText.append('Eşleşti: ', em, res.sp.names.length ? ` · ${res.sp.names.slice(0, 2).join(', ')}` : '');
+    matchEl.hidden = false; setCat(res.sp.cat); hideSuggest();
+  }
+  $('clearMatch').addEventListener('click', () => { matched = null; matchEl.hidden = true; nameInput.focus(); });
+  nameInput.addEventListener('input', () => { if (matched) { matched = null; matchEl.hidden = true; } showSuggest(); });
+  nameInput.addEventListener('blur', () => setTimeout(hideSuggest, 120));
+  nameInput.addEventListener('keydown', e => {
+    if (suggestEl.hidden) return;
+    const lis = [...suggestEl.children];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = (activeIdx + (e.key === 'ArrowDown' ? 1 : -1) + lis.length) % lis.length;
+      lis.forEach((li, i) => li.setAttribute('aria-selected', String(i === activeIdx)));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0 && activeIdx < results.length) pick(results[activeIdx]); else hideSuggest();
+    } else if (e.key === 'Escape') { e.stopPropagation(); hideSuggest(); }
+  });
+
+  unknownEl.addEventListener('change', () => {
+    if (unknownEl.checked) { matched = null; matchEl.hidden = true; nameInput.value = ''; nameInput.disabled = true; hideSuggest(); setCat('supheli'); }
+    else { nameInput.disabled = false; nameInput.focus(); }
+  });
+
+  /* ---- Fotoğraf ---- */
+  photoEl.addEventListener('change', () => {
+    const f = photoEl.files && photoEl.files[0];
+    if (!f) { photoData = ''; previewEl.hidden = true; return; }
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      const max = 900, k = Math.min(1, max / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      photoData = cv.toDataURL('image/jpeg', 0.72);
+      previewEl.src = photoData; previewEl.hidden = false; URL.revokeObjectURL(url);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast('Fotoğraf okunamadı'); };
+    img.src = url;
+  });
+
+  /* ---- Kaydet ---- */
+  $('save').addEventListener('click', () => {
+    if (!draft) { toast('Önce haritada bir nokta seç'); return; }
+    const typed = nameInput.value.trim(), unknown = unknownEl.checked;
+    if (!typed && !unknown) { toast('Bir ad yaz ya da “Adını bilmiyorum” kutusunu işaretle'); nameInput.focus(); return; }
+
+    const rec = {
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
+      lat: draft.lat, lng: draft.lng,
+      latin: matched ? matched.latin : '',
+      localName: unknown ? '' : (matched ? (nameInput.dataset.typed && matched.names.includes(nameInput.dataset.typed) ? nameInput.dataset.typed : nameInput.value.trim()) : typed),
+      status: unknown ? 'unknown' : (matched ? 'identified' : 'local_only'),
+      cat: currentCat(), date: dateEl.value || today(), habitat: habitatEl.value,
+      notes: notesEl.value.trim(), photo: photoData,
+      createdAt: new Date().toISOString(),
+      synced: false   // ileride: çevrimiçi olunca sunucuya gönderilecek
+    };
+    if (matched && norm(rec.localName) === norm(matched.latin)) rec.localName = '';
+
+    records.push(rec);
+    if (!persist(records)) { records.pop(); toast('Kayıt sığmadı. Fotoğrafsız tekrar dene.'); return; }
+    closeForm(); renderUser();
+    map.setView([rec.lat, rec.lng], Math.max(map.getZoom(), 14));
+    toast('Mantar haritaya eklendi');
+  });
+
+  /* ---- Toast ---- */
+  let toastT;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(hideToast, 4200); }
+  function hideToast() { $('toast').hidden = true; }
+
+  /* =========================================================
+     12) MANTAR REHBERİ
+         Metinler bu proje için özgün olarak yazılmıştır.
+         Görseller telif haklı kitaplardan alınmaz: internet varken
+         iNaturalist (CC lisanslı) ya da Vikipedi/Wikimedia Commons'tan
+         yüklenir, çevrimdışıyken yer tutucu çizim gösterilir.
+     ========================================================= */
+  const GCATS = [
+    { key: 'yenilebilir', title: 'Yenilebilir mantarlar', short: 'Yenilebilir',
+      intro: 'Doğru tanındığında ve iyi pişirildiğinde tüketilebilen türler. "Yenilebilir" demek "yanlışlıkla her yerde güvenle toplanır" demek değildir: bu türlerin çoğunun ölümcül ikizleri vardır.' },
+    { key: 'yenmez', title: 'Yenmeyen mantarlar', short: 'Yenmeyen',
+      intro: 'Zehirli olmayabilir ama yemeye uygun değiller: odunsu, lastiksi, acı, kokulu ya da besleyici değeri yok. Bir kısmı geleneksel kullanımlarıyla ya da ekolojik rolleriyle ilgi çekicidir.' },
+    { key: 'zehirli', title: 'Zehirli mantarlar', short: 'Zehirli',
+      intro: 'Mide-bağırsak ya da sinir sistemi zehirlenmesi yapan türler. Çoğu genellikle ölümcül değildir ama hastanelik olabilir; çocuklarda, yaşlılarda ve kronik hastalarda tehlike artar.' },
+    { key: 'olumcul', title: 'Ölümcül mantarlar', short: 'Ölümcül',
+      intro: 'Çok küçük bir parça bile karaciğer ya da böbrek yetmezliğine ve ölüme yol açabilir. Belirtiler çoğu zaman saatler, hatta günler sonra başlar; pişirme, kurutma ya da dondurma zehri gidermez.' }
+  ];
+
+  // c: kategori, latin, tr: Türkçe ad (yoksa null), wiki: görsel için Vikipedi başlıkları,
+  // t: tanıtım, i: tanıma ipuçları, w: uyarı
+  const GUIDE = [
+    /* ---------- YENİLEBİLİR ---------- */
+    { c: 'yenilebilir', latin: 'Boletus edulis', tr: 'Porçini (Çörek mantarı, Ayı mantarı)', wiki: ['Boletus_edulis'],
+      t: `Kalın, fıçı biçimli saplı, kahverengi şapkalı etli bir boru mantarıdır. Eti kesilince beyaz kalır; kokusu ve lezzeti güçlüdür. Çam, meşe ve kayın ormanlarında, çoğunlukla sonbaharda çıkar.`,
+      i: `Şapkanın altında lamel değil sünger gibi gözenekler vardır; gençken beyaz, yaşlanınca sarımsı-yeşilimsidir. Sapın üst kısmında ince beyaz ağ deseni görülür. Kesilince belirgin renk değiştirmez.`,
+      w: `Gözenekleri pembe ya da kırmızı olan, kesilince hızla maviye dönen ya da acı tadı olan boru mantarlarını toplama. Acı safra mantarı (Tylopilus felleus) yemeği acılaştırıp bozar.` },
+    { c: 'yenilebilir', latin: 'Lactarius deliciosus', tr: 'Kanlıca (Kanlı mantar)', wiki: ['Lactarius_deliciosus'],
+      t: `Turuncu şapkalı, kesilince havuç turuncusu süt salgılayan bir çam ormanı mantarıdır. Gaziantep makalesinde bölgede yöre halkınca toplanıp tüketilen altı türden biri olarak geçer. Zamanla yeşilimsi lekeler oluşur.`,
+      i: `Şapkada koyu ve açık turuncu halkalar, turuncu lameller, kesilince turuncu süt ve yaşlandıkça yeşil lekelenme beklenir. Çam ağaçlarıyla birlikte bulunur.`,
+      w: `Sütü beyaz kalan, acı ya da yakıcı olan sütmantarlarını toplama. Lactarius torminosus gibi türler mide-bağırsak şikâyeti yapar.` },
+    { c: 'yenilebilir', latin: 'Morchella esculenta', tr: 'Kuzugöbeği', wiki: ['Morchella_esculenta', 'Morchella'],
+      t: `Şapkası bal peteği gibi çukurlu, içi tamamen boş bir ilkbahar mantarıdır. Ilık bahar yağmurlarından sonra çayır kenarlarında, bahçelerde ve ormanlık alanlarda çıkar. Gaziantep makalesinde birkaç Morchella türü kayıtlıdır.`,
+      i: `Boyuna ikiye kestiğinde şapka ve sap tek bir boş boşluk oluşturur. Şapka sapa kenarından birleşir. Koku hoştur, toprağımsıdır.`,
+      w: `Çiğ yenmez, mutlaka iyice pişirilmelidir. İçi pamuksu ya da odacıklı, şapkası beyin gibi kıvrımlı olan yalancı kuzugöbeği (Gyromitra esculenta) ölümcül olabilir.` },
+    { c: 'yenilebilir', latin: 'Macrolepiota procera', tr: 'Şemsiye mantarı', wiki: ['Macrolepiota_procera'],
+      t: `Boyu 40 cm'yi bulabilen, şapkası büyük ve pullu bir mantardır. Sapında oynayabilen bir yüzük bulunur. Çoğunlukla yalnızca şapkası tüketilir.`,
+      i: `Sap yılan derisi gibi benekli desenlidir, yüzük sap üzerinde hareket eder, sap tabanı soğan gibi şişkin değildir. Spor baskısı beyazdır.`,
+      w: `Küçük, tabanı şişkin ve yüzüğü sabit olan beyaz-pullu mantarlarla karıştırma; bazı küçük lepiota türleri ölümcüldür. Yeşil spor baskısı veren Chlorophyllum molybdites mide bozar.` },
+    { c: 'yenilebilir', latin: 'Agaricus campestris', tr: 'Çayır mantarı (Kır şampinyonu)', wiki: ['Agaricus_campestris'],
+      t: `Çayır ve meralarda yağmurdan sonra çıkan yabani şampinyondur. Şapkası beyaz, lamelleri gençken pembedir; yaşlandıkça lameller çikolata kahvesine döner. Gaziantep'te yöre halkınca toplandığı bildirilir.`,
+      i: `Lameller önce pembe sonra koyu kahve-siyah olur, sapta ince bir halka vardır, kesilince hafif kırmızımsı renk alabilir, kokusu hoş mantar kokusudur.`,
+      w: `Tabanı sarı lekelenen, ilaç/mürekkep gibi (fenol) kokan şampinyonlar zehirlidir. Lamelleri beyaz kalan ve sap tabanında torba (volva) bulunan "şampinyon"lar ölümcül Amanita türleri olabilir.` },
+    { c: 'yenilebilir', latin: 'Pleurotus ostreatus', tr: 'İstiridye mantarı', wiki: ['Pleurotus_ostreatus'],
+      t: `Ölü ya da canlı kavak, söğüt ve meyve ağaçlarında kümeler halinde çıkar. Şapkası istiridye kabuğu gibi kulak biçimli, sapı kısa ve yandandır. Gaziantep'te söğüt kütüklerinde kaydedilmiştir.`,
+      i: `Lameller sapa doğru iner, beyaz-krem renklidir; sap kısa ve yandadır; spor baskısı beyaz-leylaktır.`,
+      w: `Turuncu renkli, kümeli kütük mantarlarıyla (ör. Omphalotus olearius) karıştırma. Yaşlı örnekler lastiksi olur; genç ve taze olanları topla.` },
+    { c: 'yenilebilir', latin: 'Cantharellus cibarius', tr: 'Horoz mantarı', wiki: ['Cantharellus_cibarius'],
+      t: `Yumurta sarısı renkli, huni biçimli bir mantardır. Altında gerçek lamel yoktur, sapa doğru inen sığ ve çatallı kıvrımlar vardır. Kayısıyı andıran hoş bir kokusu bulunur.`,
+      i: `Kıvrımlar kalın, çatallı ve sapa iner; eti beyaz ve lifli; kokusu meyvemsi. Genellikle toprakta ağaç köklerinin yanında çıkar.`,
+      w: `Zeytin mantarı (Omphalotus olearius) ile karıştırılır: o, gerçek lamellidir, kütük ya da kök dibinde yoğun kümeler oluşturur ve şiddetli mide-bağırsak zehirlenmesi yapar.` },
+    { c: 'yenilebilir', latin: 'Armillaria mellea', tr: 'Bal mantarı', wiki: ['Armillaria_mellea'],
+      t: `Ağaç gövdelerinde ve kütük diplerinde kümeler halinde çıkan bal sarısı renkli bir mantardır. Ağaçlarda kök çürüklüğü yapan bir parazit olarak da bilinir.`,
+      i: `Spor baskısı beyazdır; sapta bir yüzük vardır; kümeler halinde yaşar; ağaç köklerinde ayakkabı bağı gibi siyah teller (rizomorf) bulunabilir.`,
+      w: `İyice pişirilmelidir; bazı kişilerde mide rahatsızlığı yapar. Kütükte kümelenen kükürt mantarı (Hypholoma fasciculare) ve ölümcül Galerina marginata ile karıştırılabilir; Galerina'nın spor baskısı pas kahverengidir.` },
+    { c: 'yenilebilir', latin: 'Cyclocybe cylindracea', tr: 'Kavak mantarı', wiki: ['Cyclocybe_aegerita', 'Cyclocybe_cylindracea'],
+      t: `Kavak kütüklerinde ve gövdelerinde çıkan, kahverengi şapkalı, sapında yüzük bulunan bir odun mantarıdır. Gaziantep makalesinde kavak kütüklerinde kaydedilmiştir; kültürü de yapılır.`,
+      i: `Spor baskısı kahverengidir, sapta yüzük vardır, odun üzerinde kümeli ya da dizi halinde büyür.`,
+      w: `Odun üzerinde çıkan kahverengi sporlu türlerle, özellikle ölümcül Galerina marginata ve acı kükürt mantarıyla karıştırılabilir. Sap, yüzük ve spor baskısını mutlaka kontrol et.` },
+    { c: 'yenilebilir', latin: 'Terfezia boudieri', tr: 'Çöl trüfü (Domalan)', wiki: ['Terfezia_boudieri', 'Terfezia'],
+      t: `Toprak altında yetişen, yumru biçimli bir mantardır; güneşgülü (Helianthemum) türlerinin köklerinde yaşar. Gaziantep makalesine göre bölgede toplanıp tüketilir ve yerel ekonomik öneme sahiptir.`,
+      i: `Baharda toprağı hafifçe kabartıp çatlatan yumrular; eti açık renkli, küçük bir patatesi andırır.`,
+      w: `Yeraltı mantarlarını deneyimsiz toplamayın. Sahte trüf (Scleroderma) içi siyah-mor ve sert olduğu için ayrılır ama karıştırılması sık görülür.` },
+    { c: 'yenilebilir', latin: 'Coprinus comatus', tr: 'Mürekkep mantarı (püsküllü)', wiki: ['Coprinus_comatus', 'Shaggy_mane'],
+      t: `Beyaz, püsküllü ve silindir biçimli bir mantardır; yaşlandıkça lamelleri siyah mürekkep gibi erir. Çimenlerde ve yol kenarlarında çıkar. Gaziantep'te yöre halkınca tüketildiği bildirilen türlerdendir.`,
+      i: `Uzun, silindirik, beyaz lifli-pullu şapka; lameller önce beyaz, sonra pembe, sonra siyah ve sıvılaşır.`,
+      w: `Yalnızca genç, lamelleri henüz beyaz-pembe olan örnekleri topla ve hemen pişir. Bazı kaynaklar alkolle birlikte tüketilmemesini önerir. Yaşlı örnekleri atın.` },
+
+    /* ---------- YENMEYEN ---------- */
+    { c: 'yenmez', latin: 'Fomes fomentarius', tr: 'Kav mantarı', wiki: ['Fomes_fomentarius'],
+      t: `Kayın, söğüt ve diğer geniş yapraklı ağaçların gövdesinde at nalı biçiminde, sert, odunsu kümeler yapar. İç kısmı eskiden ateş yakmak için kav olarak kullanılmıştır. Gaziantep'te söğüt kütüğünde kaydedilmiştir.`,
+      i: `Gri-kahverengi, katmanlı ve çok sert kabuk; alt yüzeyi ince gözenekli; ağaca sıkıca yapışıktır.`,
+      w: `Zehirli değildir ama yenmez. Doğada ağaçlar için önemli bir ayrıştırıcıdır; koparıp tahrip etmeyin.` },
+    { c: 'yenmez', latin: 'Ganoderma lucidum', tr: 'Reishi (Parlak ağaç mantarı)', wiki: ['Ganoderma_lucidum'],
+      t: `Vernik gibi parlak, kırmızımsı-kahverengi, böbrek biçimli odunsu bir mantardır; çürüyen kütüklerde çıkar. Doğu tıbbında geleneksel olarak kullanılır ama sert ve acı olduğu için yemek olarak tüketilmez.`,
+      i: `Parlak, cilalı görünümlü şapka ve yan yerleşimli sap; ağaç üzerinde ya da dibinde çıkar.`,
+      w: `Bilimsel çalışmalar sürmektedir; kendi başınıza tedavi amacıyla kullanmayın. İlaç etkileşimi olabilir.` },
+    { c: 'yenmez', latin: 'Trametes versicolor', tr: 'Hindi kuyruğu', wiki: ['Trametes_versicolor'],
+      t: `Ölü odunlar üzerinde çok renkli, ince, yelpaze biçimli halkalar halinde çıkar. Kauçuk gibi sert olduğu için yenmez; ekstraktları üzerinde tıbbi araştırmalar yapılmıştır.`,
+      i: `Eş merkezli renkli bantlar, ince ve sert, alt yüzeyi küçük gözenekli.`,
+      w: `Yenmez. Kendi başınıza çay ya da ekstrakt yapıp tedavi aracı olarak kullanmayın.` },
+    { c: 'yenmez', latin: 'Geastrum pectinatum', tr: 'Yer yıldızı', wiki: ['Geastrum_pectinatum', 'Geastrum'],
+      t: `Dış zarı olgunlaşınca yıldız gibi açılan, ortasında küçük bir toz torbası taşıyan bir mantardır. Çam ve meşe ormanlarında yosunlu zeminde bulunur. Yenmez.`,
+      i: `Yıldız biçimli açılmış dış zar ve ortada yuvarlak spor kesesi; sıkınca toz gibi spor çıkarır.`,
+      w: `Zehirli değildir ama yemeye uygun değildir. Çocukların sporları solumaması için ezilmemelidir.` },
+    { c: 'yenmez', latin: 'Phallus impudicus', tr: null, wiki: ['Phallus_impudicus'],
+      t: `Olgunken uzun beyaz bir sap ve ucunda çürük et gibi kokan, zeytin yeşili sümüksü bir tabaka oluşturur; kokusuyla sinekleri çeker. Önce yumurta biçimli genç evresinde görünür.`,
+      i: `Beyaz süngerimsi sap, uçta kokulu sümüksü tabaka ve tabanda beyaz torba.`,
+      w: `Yaygın uygulama değildir; genç "yumurta" evresi bazı yerlerde yenilse de deneyimsizler için önerilmez.` },
+
+    /* ---------- ZEHİRLİ ---------- */
+    { c: 'zehirli', latin: 'Amanita muscaria', tr: 'Sinek mantarı', wiki: ['Amanita_muscaria'],
+      t: `Kırmızı şapkası üzerinde beyaz benekler bulunan, masal kitaplarındaki ünlü mantar. Çam ve huş ormanlarında yetişir. Sinir sistemini etkileyen maddeler içerir (sersemlik, kusma, hayal görme, kasılma).`,
+      i: `Kırmızı ya da turuncu şapka, üzerinde beyaz siğil benzeri pullar, sapta yüzük, tabanda şişkin soğansı kaide.`,
+      w: `Yenmez; kurutma ya da pişirme tamamen güvenli kılmaz. Çocuklar ve evcil hayvanlar için tehlikelidir. Ölümcül Amanita türleriyle aynı cinstendir.` },
+    { c: 'zehirli', latin: 'Amanita pantherina', tr: 'Panter mantarı', wiki: ['Amanita_pantherina'],
+      t: `Kahverengi şapkalı, üzerinde beyaz ben benzeri pullar bulunan bir amanitadır. Sinek mantarına benzer toksinler içerir; ciddi sinir sistemi belirtileri yapabilir.`,
+      i: `Beyaz benekli kahverengi şapka; sapta yüzük; sap tabanında çıkıntılı halka biçimli kaide.`,
+      w: `Yenilebilir "kahverengi" mantarlarla (ör. Amanita rubescens) karıştırılabilir. Amanita cinsinin hiçbir türünü toplayıp yeme.` },
+    { c: 'zehirli', latin: 'Agaricus xanthodermus', tr: 'Sarı lekeli şampinyon', wiki: ['Agaricus_xanthodermus'],
+      t: `Beyaz bir şampinyona çok benzer ama sap tabanı ve şapka kenarı sıkılınca ya da kesilince hızla sarıya döner. Pişerken ilaç ya da mürekkep gibi kimyasal bir koku yayar. Mide-bağırsak zehirlenmesi yapar. Gaziantep makalesinde kayıtlıdır.`,
+      i: `Sap tabanında canlı sarı renk, fenol kokusu, pişirince ağır koku.`,
+      w: `Çayır mantarıyla karıştırılan en yaygın zehirli şampinyondur. Tabanı sararan, fenol kokulu şampinyonları atın.` },
+    { c: 'zehirli', latin: 'Omphalotus olearius', tr: 'Zeytin mantarı', wiki: ['Omphalotus_olearius'],
+      t: `Zeytin, meşe ve diğer ağaçların dibinde ve kütüklerinde turuncu, yoğun kümeler halinde çıkar; karanlıkta hafif parlayabilir. Horoz mantarına benzetilir. Şiddetli kusma, ishal ve karın krampı yapar. Gaziantep makalesinde meşe kütüğü üzerinde kaydedilmiştir.`,
+      i: `Gerçek lameller (kıvrım değil), turuncu renk, kütük ya da kök bağlantılı yoğun küme, sapı tabana doğru daralır.`,
+      w: `Horoz mantarı ya da istiridye mantarı sanılabilir. Turuncu kümeli kütük mantarlarını toplama.` },
+    { c: 'zehirli', latin: 'Hypholoma fasciculare', tr: 'Kükürt mantarı', wiki: ['Hypholoma_fasciculare'],
+      t: `Kütük ve kök diplerinde sık demetler halinde çıkan, kükürt sarısı şapkalı, çok acı tadlı bir mantardır. Mide-bağırsak zehirlenmesi yapar; ağır vakalar bildirilmiştir. Gaziantep'te meşe kütüğü çevresinde kaydedilmiştir.`,
+      i: `Sarı-yeşilimsi lameller, mor-kahve spor baskısı, acı tat.`,
+      w: `Bal mantarı ve kavak mantarıyla karışabilir. Spor baskısını al ve tat farkına güvenme; tadına bakmak güvenli bir test değildir.` },
+    { c: 'zehirli', latin: 'Lactarius torminosus', tr: null, wiki: ['Lactarius_torminosus'],
+      t: `Şapkası pembemsi-turuncu, kenarı yünlü-kıllı ve içe kıvrık, beyaz süt salgılayan bir mantardır. Huş ve meşe altında çıkar. Çiğ ya da yetersiz pişirilince mide-bağırsağı yakıcı etki yapar. Gaziantep makalesinde meşe ormanında kaydedilmiştir.`,
+      i: `İçe kıvrık, lifli-kıllı şapka kenarı; beyaz yakıcı süt; halkalı pembe-turuncu şapka.`,
+      w: `Kanlıca ile karıştırma: Kanlıcanın sütü beyaz değil, turuncudur.` },
+    { c: 'zehirli', latin: 'Inocybe bongardii', tr: 'Lif mantarı (Inocybe)', wiki: ['Inocybe_bongardii', 'Inocybe'],
+      t: `Küçük, kahverengi-krem, şapkası ortada tepecikli ve lifli çatlaklı mantarlardır. Birçok türü muskarin içerir: terleme, salya, gözyaşı, göz bebeği küçülmesi, yavaş nabız gibi bulgular yapar. Gaziantep makalesinde birkaç Inocybe türü kayıtlıdır.`,
+      i: `Lifli-çatlak şapka, ortada tepecik, solgun kahverengi lameller, çoğu zaman meyvemsi ya da tuhaf koku.`,
+      w: `Türlerini ayırmak uzman işidir. Küçük, soluk kahverengi, lifli şapkalı mantarların hiçbirini toplama.` },
+    { c: 'zehirli', latin: 'Coprinopsis atramentaria', tr: null, wiki: ['Coprinopsis_atramentaria'],
+      t: `Gri-kahverengi çan biçimli, yaşlandıkça lamelleri siyah mürekkebe dönüşen bir mantardır. Tek başına zararsız görünür, ancak yemekten önce ya da sonra günlerce alkol alınırsa yüz kızarıklığı, çarpıntı ve bulantı gibi ağır reaksiyon yapar. Gaziantep makalesinde kavak kütüğü çevresinde kayıtlıdır.`,
+      i: `Gri, hafif pullu çan şapka, kümeli, lameller erir ve sıvılaşır.`,
+      w: `Yenilebilir mürekkep mantarı (Coprinus comatus) ile karıştırılmamalı. Alkolle birlikte tehlikelidir.` },
+    { c: 'zehirli', latin: 'Scleroderma cepa', tr: 'Sahte trüf', wiki: ['Scleroderma_cepa', 'Scleroderma'],
+      t: `Yuvarlak, sert kabuklu, sapsız bir mantardır; kesince içi mor-siyah ve sert görünür. Trüf sanılarak toplanabilir ama mide-bağırsak zehirlenmesi yapar. Gaziantep makalesinde iki Scleroderma türü kayıtlıdır.`,
+      i: `Kalın deri gibi kabuk, olgunlaşınca içi siyah-mor ve sert; yüzeyi pürüzlü ya da pullu.`,
+      w: `Gerçek trüfün içi açık renkli ve damarlıdır. İçi kesince koyu mor-siyah olan yeraltı mantarlarını yeme.` },
+
+    /* ---------- ÖLÜMCÜL ---------- */
+    { c: 'olumcul', latin: 'Amanita phalloides', tr: 'Yeşil ölüm mantarı (Ölüm şapkası)', wiki: ['Amanita_phalloides'],
+      t: `Dünyada mantar kaynaklı ölümlerin çoğundan sorumlu türdür. Şapkası zeytin yeşili-sarımsıdır, lamelleri beyazdır, sapında yüzük ve tabanında torba (volva) bulunur. Amatoksinler karaciğer ve böbreklere saldırır; pişirme, kurutma ve dondurma toksini yok etmez.`,
+      i: `Beyaz lameller, sap üzerinde yüzük, sap tabanında torba biçimli kaide; şapka yeşilimsi ve ipeksi lifli.`,
+      w: `Belirtiler 6-24 saat sonra başlar, sonra geçici bir "iyileşme" dönemi gelir; ardından karaciğer yetmezliği gelişir. Şüphede hemen 112 ya da hastane. Kendi başına bekleme.` },
+    { c: 'olumcul', latin: 'Amanita virosa', tr: 'Yıkıcı melek (Ölüm meleği)', wiki: ['Amanita_virosa', 'Destroying_angel_(mushroom)'],
+      t: `Tamamen saf beyaz, zarif yapılı ölümcül bir amanitadır. Sapı tüylü-pullu, sapta yüzük, tabanda torba bulunur. Beyaz şampinyonla ya da genç şemsiye mantarıyla karıştırılarak ölümlere yol açmıştır.`,
+      i: `Her yeri beyaz; lameller beyaz; sapta yüzük; tabanda torba (kazarak çıkar).`,
+      w: `Beyaz renkli, torbalı tabana sahip hiçbir "şampinyon"u yeme. Sap tabanını toprağı kazarak mutlaka kontrol et.` },
+    { c: 'olumcul', latin: 'Galerina marginata', tr: 'Ölümcül galerina', wiki: ['Galerina_marginata'],
+      t: `Çürüyen odun, kütük ve yosunlu kütükler üzerinde kümeler halinde çıkan küçük, bal-kahverengi bir mantardır. Amatoksin içerir; bal mantarı ve diğer odun mantarlarıyla karıştırılır. Gaziantep makalesinde çam kütüğü üzerinde kaydedilmiştir.`,
+      i: `Pas kahverengi spor baskısı, sapta ince yüzük (bazen silik), küçük boy ve ahşap üzerinde çıkış.`,
+      w: `Odun üzerinde çıkan küçük kahverengi mantarları yemeyin. Bal mantarının spor baskısı beyazdır; Galerina'nınki kahverengidir.` },
+    { c: 'olumcul', latin: 'Conocybe filaris', tr: null, wiki: ['Conocybe_rugosa', 'Conocybe_filaris'],
+      t: `Çimenlik, bahçe ve gübreli alanlarda çıkan, küçük, narin, pas-kahve şapkalı ince saplı bir mantardır. Amatoksin içerir; küçük boyutuna rağmen ölümcüldür. Gaziantep makalesinde sığır gübresi üzerinde kayıtlıdır.`,
+      i: `Konik-çan şapka, çok ince sap, sapta küçük yüzük, pas kahverengi spor baskısı.`,
+      w: `Çim ya da gübre üzerinde çıkan küçük, kahverengi, narin mantarların hiçbirini toplama; hepsi aynı gözüküyor.` },
+    { c: 'olumcul', latin: 'Cortinarius orellanus', tr: 'Orellanus (Ölümcül örümcek mantarı)', wiki: ['Cortinarius_orellanus'],
+      t: `Turuncu-pas kahverengi, orta büyüklükte bir mantardır; gençken sap üzerinde örümcek ağı gibi bir perde izi taşır. Orellanin böbrek yetmezliğine yol açar; belirtiler günler hatta haftalar sonra başlayabilir, bu nedenle zehirlenmeyi fark etmek zordur.`,
+      i: `Pas turuncu-kahve renk, kalın lameller, sapta örümcek ağı izi, kokusu turp benzeri olabilir.`,
+      w: `Türlerini ayırt etmek çok zordur. Pas renkli, örümcek ağı izi olan hiçbir mantarı yeme.` },
+    { c: 'olumcul', latin: 'Lepiota brunneoincarnata', tr: 'Ölümcül lepiota', wiki: ['Lepiota_brunneoincarnata', 'Lepiota'],
+      t: `Küçük (4-8 cm), şapkası pembemsi-kahve ince pullu, sapında yüzük izi bulunan beyaz-pembe mantardır. Çim ve bahçelerde çıkar. Amatoksin içerir; küçük bir "şemsiye mantarı" sanılabilir.`,
+      i: `Küçük şapka, merkezde koyu pul, ince pullu yüzey, sapta silik yüzük.`,
+      w: `Küçük şemsiye mantarlarının (Lepiota cinsi) hiçbirini toplayıp yeme; birçoğu zehirli ya da ölümcüldür.` },
+    { c: 'olumcul', latin: 'Gyromitra esculenta', tr: 'Yalancı kuzugöbeği', wiki: ['Gyromitra_esculenta'],
+      t: `Şapkası beyin gibi kıvrımlı, kırmızımsı-kahverengi olan bir ilkbahar mantarıdır; içi pamuksu/odacıklıdır. Çam altında çıkar. Giromitrin içerir; çiğ ya da yetersiz pişirilince ölümcül olabilir, pişirme buharı bile rahatsız edicidir.`,
+      i: `Beyin gibi kıvrımlı kırmızı-kahve şapka, içi dolu ve odacıklı, sap kalın ve kıvrımlı.`,
+      w: `Gerçek kuzugöbeği ile karıştırma: kuzugöbeğinin içi bomboştur, şapkası bal peteği gibidir.` }
+  ];
+
+  const RULES = [
+    ['Kesin teşhis yoksa yeme', 'Mantarda "neredeyse eminim" diye bir şey yoktur. Türü yüzde yüz tanıyamıyorsan yeme; şüphede sepetten at. Bir mantarın "bir tane" bile ölümcül olabildiğini unutma.'],
+    ['Tek özelliğe güvenme', 'Şapka rengi aldatır. Aynı anda bak: şapka, alt yüzey (lamel/gözenek/diken), sap, halka, sap tabanı, koku, kesince renk değişimi, spor baskısı ve yetiştiği ağaç ya da zemin.'],
+    ['Mantarı kesme, tabanıyla çıkar', 'Ölümcül Amanita türlerinin en önemli ayırt edici özelliği olan torba (volva) toprak altında kalır. Mantarı hafifçe döndürerek tabanıyla birlikte çıkar ve tabanı temizlemeden önce incele.'],
+    ['Türleri ayrı topla', 'Her türü ayrı kâğıt torbaya ya da sepet bölmesine koy. Plastik torba mantarı terletir ve çürütür. Tanımadığın bir mantarı yemeklik mantarların yanına koyma; parçalar karışabilir.'],
+    ['Yalnızca taze ve sağlam örnekleri al', 'Kurtlanmış, ezilmiş, sümüksü, koku yapmış ya da aşırı olgunlaşmış mantarı alma. Bozulan yenilebilir mantar da zehirlenmeye yol açar.'],
+    ['Çiğ yeme, iyi pişir', 'Yabani mantarların çoğu çiğ yenmez. Bazıları (kuzugöbeği, bal mantarı) ancak iyice pişirilirse güvenli olur.'],
+    ['İlk kez yediğin türden az ye', 'Yenilebilir türlere de kişisel duyarlılık görülebilir. Yeni türden önce az miktar dene. Pişirmeden önce birkaç parça ayırıp buzdolabında sakla; zehirlenme durumunda teşhisi hızlandırır.'],
+    ['Alkolle birlikte tüketme', 'Bazı mantarlar (özellikle mürekkep mantarları) alkolle birlikte ağır bir reaksiyon yapar. Mantarlı yemekten önce ve sonra birkaç gün alkol almayın.'],
+    ['Kirli yerlerden toplama', 'Mantarlar ağır metalleri ve kirleticileri biriktirir. Yol kenarı, sanayi bölgesi, çöplük, ilaçlanan tarla ve bahçe kenarlarından toplamayın.'],
+    ['Uygulama ve yapay zekâya körü körüne güvenme', 'Fotoğraftan tanıma uygulamaları, bu harita ve hatta kitaplar yanılabilir. Hiçbiri kesin teşhis yerine geçmez; emin olmadığın mantarı yerel mikoloji uzmanına ya da mantar derneğine göster.'],
+    ['Çocukları ve evcil hayvanları koru', 'Çocukların yabani mantar toplamasına ve yemesine izin verme. Köpekler de zehirli mantarlardan etkilenir; yürüyüşte yakından takip et.'],
+    ['Doğaya ve hukuka saygı göster', 'Orman izinlerini, toplama yasaklarını ve korunan alanları öğren; ticari toplama için izin gerekebilir. Tümünü toplama, bir kısmını sporlar için bırak. Tanımadığın ya da zehirli mantarları tekmeleyip ezme; ekosistemin parçasıdırlar.'],
+    ['Güvenliğini planla', 'Haritayı çevrimdışı indir, yol bilgisini ve dönüş zamanını birine söyle. Su, telefon şarjı, uygun ayakkabı ve ilk yardım malzemesi al. Avcı sezonunda canlı renk giy; yılan ve akrebe karşı dikkatli ol.'],
+    ['Not al, fotoğraf çek', 'Üstten, alttan ve sap tabanından fotoğraf çek; koku, zemin, yakındaki ağaç ve tarihi yaz. Bu uygulamaya kaydetmek hem sana hem uzmanlara yardımcı olur.']
+  ];
+
+  const MYTHS = [
+    ['Gümüş kaşık, soğan ya da sarımsak renk değiştirirse mantar zehirlidir.', 'Yanlış. Hiçbir ev testi güvenilir değildir; ölümcül mantarlar bu testleri geçer.'],
+    ['Hayvanlar yiyorsa mantar güvenlidir.', 'Yanlış. Salyangoz, sincap ya da geyik insana zehirli mantarları rahatça yiyebilir.'],
+    ['Pişirmek tüm zehirleri giderir.', 'Yanlış. Ölümcül amatoksinler ısıya dayanıklıdır; bazı zehirler pişirmeyle azalsa bile risk tamamen ortadan kalkmaz.'],
+    ['Kurutmak ya da dondurmak zehri yok eder.', 'Yanlış. Zehir mantarın içinde kalır.'],
+    ['Kabuğu soyulabilen mantar yenir.', 'Yanlış. Ölümcül amanitaların da şapka derisi soyulabilir.'],
+    ['Renkli mantar zehirli, beyaz mantar yenir.', 'Yanlış. Saf beyaz olan Amanita virosa ölümcüldür; kırmızı şapkalı olanlardan daha tehlikelidir.'],
+    ['Acı değilse ve kötü kokmuyorsa zehirli değildir.', 'Yanlış. Ölüm şapkası hoş kokulu ve tatlı diye bilinir; bu yüzden tehlikelidir.']
+  ];
+
+  const RECIPES = [
+    { name: 'Tereyağlı Sarımsaklı Mantar Sote', note: 'Şampinyon ya da kesin teşhis edilmiş yenilebilir mantar', time: '15 dakika', serv: '2 kişilik',
+      ing: ['400 g mantar', '2 yemek kaşığı tereyağı', '2 diş sarımsak', 'Tuz, karabiber', '1 yemek kaşığı doğranmış maydanoz', 'Birkaç damla limon'],
+      steps: ['Mantarları nemli bezle silin, gerekiyorsa kısa süre yıkayıp kurulayın; dilimleyin.', 'Geniş tavada tereyağını eritin. Mantarları tavaya kalabalık etmeden koyun ve orta-yüksek ateşte karıştırmadan bekletin; kenarları kızarınca çevirin.', 'Sarımsağı ekleyin, tuz ve karabiber atın; 1-2 dakika daha pişirin.', 'Ocaktan alınca maydanoz ve limonla servis edin.'] },
+    { name: 'Kremalı Mantar Çorbası', note: 'Şampinyon, istiridye ya da diğer yenilebilir mantarlar', time: '35 dakika', serv: '4 kişilik',
+      ing: ['300 g mantar', '1 soğan', '1 yemek kaşığı tereyağı', '1 yemek kaşığı un', '3 su bardağı su ya da tavuk suyu', '½ su bardağı süt ya da krema', 'Tuz, karabiber, kekik'],
+      steps: ['Soğanı tereyağında yumuşayana kadar kavurun; doğranmış mantarları ekleyip suyunu çekene kadar pişirin.', 'Unu ekleyip 1 dakika kavurun; suyu azar azar ilave edin.', '15 dakika kaynatın, baharatla tatlandırın.', 'Blenderdan geçirin, süt ya da kremayı ekleyip bir taşım kaynatın.'] },
+    { name: 'Fırında Doldurulmuş Mantar', note: 'İri şampinyon ya da portobello', time: '30 dakika', serv: '4 kişilik',
+      ing: ['12 iri mantar', '1 küçük soğan', '2 diş sarımsak', '3 yemek kaşığı galeta unu', '4 yemek kaşığı rendelenmiş kaşar ya da beyaz peynir', 'Maydanoz, tuz, zeytinyağı'],
+      steps: ['Fırını 190 dereceye ısıtın. Mantar saplarını çıkarıp ince doğrayın; şapkaları tepsiye dizin.', 'Soğan ve sarımsağı zeytinyağında kavurun, sapları ekleyip suyunu çekene kadar pişirin.', 'Galeta unu, peynir, maydanoz ve tuzu karıştırıp şapkaları doldurun.', '15-20 dakika, üstü kızarana kadar pişirin.'] },
+    { name: 'Mantarlı Omlet', note: 'Kahvaltı için hızlı bir seçenek', time: '10 dakika', serv: '1 kişilik',
+      ing: ['3 yumurta', '100 g dilimlenmiş mantar', '1 yemek kaşığı tereyağı', 'Tuz, karabiber', 'Dilerseniz peynir ya da yeşillik'],
+      steps: ['Mantarları tereyağında suyunu çekene kadar kavurun.', 'Çırpılmış yumurtayı tuz ve karabiberle ekleyin.', 'Kısık ateşte altı tuttuğunda peyniri koyup ikiye katlayın.'] }
+  ];
+
+  /* ---- Görseller: önce iNaturalist (CC lisanslı), olmazsa Vikipedi (internet varken) ----
+         iNaturalist fotoğraflarının boyut adı URL'de değiştirilebilir:
+         original (2048 px) > large (1024 px) > medium (500 px).               */
+  const IMG_KEY = 'mantarHaritasi.img.v3';
+  let imgCache = {};
+  try { imgCache = JSON.parse(localStorage.getItem(IMG_KEY)) || {}; } catch { imgCache = {}; }
+  const saveImgCache = () => { try { localStorage.setItem(IMG_KEY, JSON.stringify(imgCache)); } catch {} };
+
+  // Yanlış çıkan bir türün görselini elle düzeltmek için:
+  //   'Boletus edulis': { urls: ['https://…/foto.jpg'], page: 'https://…', by: 'Kaynak', credit: 'Fotoğrafçı, CC BY', lic: 'CC-BY' }
+  const IMG_OVERRIDE = {};
+
+  const inatSize = (u, size) => u.replace(/\/(square|thumb|small|medium|large|original)\.([A-Za-z0-9]+)(\?.*)?$/, '/' + size + '.$2$3');
+  const wikiSize = (u, w) => u.replace(/\/\d+px-/, '/' + w + 'px-');
+  const inatPhoto = p => {
+    const base = p.medium_url || p.url; if (!base || !p.license_code) return null;
+    return { urls: [inatSize(base, 'large'), inatSize(base, 'medium')], page: p.id ? 'https://www.inaturalist.org/photos/' + p.id : '',
+             by: 'iNaturalist', credit: p.attribution || '', lic: String(p.license_code).toUpperCase() };
+  };
+
+  async function fromINat(g) {
+    const r = await fetch('https://api.inaturalist.org/v1/taxa?rank=species&is_active=true&per_page=6&q=' + encodeURIComponent(g.latin));
+    if (!r.ok) return null;
+    const j = await r.json();
+    const want = g.latin.toLowerCase();
+    // Yanlış tür gelmesin: ad ya da eşanlamlı ad birebir eşleşmeli
+    const t = (j.results || []).find(x => (x.name || '').toLowerCase() === want || (x.matched_term || '').toLowerCase() === want);
+    const info = t && t.default_photo && inatPhoto(t.default_photo);
+    if (!info) return null;
+    info.taxon = t.id; return info;
+  }
+  async function fromWiki(g) {
+    for (const title of g.wiki) {
+      const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(title) + '?redirect=true');
+      if (!r.ok) continue;
+      const j = await r.json();
+      const th = j.thumbnail && j.thumbnail.source;
+      if (th) {
+        const urls = [wikiSize(th, 960), th];
+        if (j.originalimage && j.originalimage.source) urls.push(j.originalimage.source);
+        return { urls, page: (j.content_urls && j.content_urls.desktop && j.content_urls.desktop.page) || '',
+                 by: 'Vikipedi / Wikimedia Commons', credit: '', lic: '' };
+      }
+    }
+    return null;
+  }
+  // Dönüş: bilgi nesnesi | false (hiçbir kaynakta yok) | null (çevrimdışı/hata, önbelleğe yazılmaz)
+  async function getImage(g) {
+    if (IMG_OVERRIDE[g.latin]) return IMG_OVERRIDE[g.latin];
+    if (imgCache[g.latin] !== undefined) return imgCache[g.latin];
+    try {
+      const info = (await fromINat(g).catch(() => null)) || (await fromWiki(g));
+      imgCache[g.latin] = info || false; saveImgCache();
+      return imgCache[g.latin];
+    } catch { return null; }
+  }
+  // Aynı türün farklı gözlemlerinden en fazla 10 fotoğraf (farklı açılar, doğru tanıma için)
+  async function getGallery(g, info) {
+    if (g._gal) return g._gal;
+    let list = [];
+    if (info && info.taxon) {
+      try {
+        const r = await fetch('https://api.inaturalist.org/v1/taxa/' + info.taxon);
+        const j = await r.json(); const t = (j.results || [])[0];
+        list = ((t && t.taxon_photos) || []).map(x => x.photo && inatPhoto(x.photo)).filter(Boolean).slice(0, 10);
+      } catch {}
+    }
+    g._gal = list.length ? list : [info];
+    return g._gal;
+  }
+  // Sırayla aday adreslerini dener (HD olmazsa bir alt boyuta düşer)
+  function loadInto(urls, ok, fail) {
+    const img = new Image(); let i = 0;
+    img.referrerPolicy = 'no-referrer'; img.decoding = 'async';
+    img.onload = () => ok(img);
+    img.onerror = () => { i++; if (i < urls.length) img.src = urls[i]; else fail(); };
+    img.src = urls[0];
+  }
+  function creditInto(node, info) {
+    node.innerHTML = '';
+    if (info.page) { const a = el('a', '', info.by); a.href = info.page; a.target = '_blank'; a.rel = 'noopener'; node.append('Görsel: ', a); }
+    else node.append('Görsel: ' + info.by);
+    const extra = info.credit || info.lic;
+    if (extra) node.append(' · ' + extra);
+  }
+
+  /* ---- Büyük görüntüleyici (HD + galeri) ---- */
+  const lbEl = $('lb'), lbStage = $('lbStage'), lbCap = $('lbCap'), lbCount = $('lbCount'), lbTitle = $('lbTitle');
+  let lbList = [], lbIdx = 0, lbToken = 0;
+  function lbShow() {
+    const info = lbList[lbIdx], token = ++lbToken;
+    lbStage.innerHTML = ''; lbStage.appendChild(el('p', 'lb-msg', 'Yükleniyor…'));
+    lbCount.textContent = lbList.length > 1 ? `${lbIdx + 1} / ${lbList.length}` : '';
+    $('lbPrev').hidden = $('lbNext').hidden = lbList.length < 2;
+    creditInto(lbCap, info);
+    loadInto(info.urls, img => { if (token !== lbToken) return; img.alt = lbTitle.textContent; lbStage.innerHTML = ''; lbStage.appendChild(img); },
+      () => { if (token === lbToken) { lbStage.innerHTML = ''; lbStage.appendChild(el('p', 'lb-msg', 'Görsel yüklenemedi')); } });
+  }
+  async function openLightbox(g, info) {
+    lbTitle.textContent = g.tr ? `${g.tr} (${g.latin})` : g.latin;
+    lbList = [info]; lbIdx = 0; lbEl.hidden = false; lbShow(); $('lbClose').focus();
+    const gal = await getGallery(g, info);
+    if (!lbEl.hidden && gal.length > 1 && lbList.length === 1) { lbList = gal; lbIdx = 0; lbShow(); }
+  }
+  const closeLb = () => { lbEl.hidden = true; lbToken++; lbStage.innerHTML = ''; };
+  const lbStep = d => { if (lbList.length > 1) { lbIdx = (lbIdx + d + lbList.length) % lbList.length; lbShow(); } };
+  $('lbClose').addEventListener('click', closeLb);
+  $('lbPrev').addEventListener('click', () => lbStep(-1));
+  $('lbNext').addEventListener('click', () => lbStep(1));
+  lbEl.addEventListener('click', e => { if (e.target === lbEl || e.target === lbStage) closeLb(); });
+  document.addEventListener('keydown', e => {
+    if (lbEl.hidden) return;
+    if (e.key === 'Escape') closeLb(); else if (e.key === 'ArrowLeft') lbStep(-1); else if (e.key === 'ArrowRight') lbStep(1);
+  });
+  const phSvg = col => `<svg viewBox="0 0 120 90" aria-hidden="true"><path d="M14 52c0-24 21-40 46-40s46 16 46 40z" fill="${col}" opacity=".85"/><rect x="49" y="50" width="22" height="30" rx="9" fill="${col}" opacity=".5"/></svg>`;
+
+  /* ---- Rehber arayüzü ---- */
+  const guideEl = $('guide'), gBody = $('gBody');
+  const TABS = [['turler', 'Türler'], ['kurallar', 'Avcılık kuralları'], ['yemek', 'Yemekler'], ['bilgi', 'Makromantarlar']];
+  let gTab = 'turler', gFilter = 'hepsi', gQuery = '', gObserver = null;
+
+  const gTabs = $('gTabs');
+  TABS.forEach(([k, label]) => {
+    const b = el('button', 'g-tab', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.k = k;
+    b.addEventListener('click', () => { gTab = k; renderGuide(); });
+    gTabs.appendChild(b);
+  });
+
+  function openGuide() {
+    if (sheet.classList.contains('open')) closeForm();
+    map.closePopup(); closeResults();
+    guideEl.hidden = false; renderGuide();
+    $('closeGuide').focus();
+  }
+  function closeGuide() { guideEl.hidden = true; if (gObserver) { gObserver.disconnect(); gObserver = null; } }
+  $('guideBtn').addEventListener('click', openGuide);
+  $('closeGuide').addEventListener('click', closeGuide);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !guideEl.hidden && $('lb').hidden) closeGuide(); });
+
+  function renderGuide() {
+    [...gTabs.children].forEach(b => b.setAttribute('aria-selected', String(b.dataset.k === gTab)));
+    if (gObserver) { gObserver.disconnect(); gObserver = null; }
+    gBody.innerHTML = '';
+    const wrap = el('div', 'g-wrap'); gBody.appendChild(wrap);
+    ({ turler: tabTurler, kurallar: tabKurallar, yemek: tabYemek, bilgi: tabBilgi })[gTab](wrap);
+    gBody.scrollTop = 0;
+  }
+
+  const noteBox = (title, text, kind) => {
+    const d = el('div', 'g-note' + (kind ? ' ' + kind : ''));
+    if (title) d.appendChild(el('strong', '', title + ' '));
+    d.append(text); return d;
+  };
+
+  /* ---- Türler ---- */
+  function tabTurler(wrap) {
+    wrap.appendChild(noteBox('Önemli:', 'Bu rehber kesin teşhis aracı değildir. Hiçbir fotoğraf ya da yazı, mantarı elinde tutan bir uzmanın yerini tutmaz. Emin olmadığın mantarı yeme.', 'warn'));
+
+    const ctl = el('div', 'g-ctl');
+    const q = document.createElement('input'); q.type = 'search'; q.className = 'g-q';
+    q.placeholder = 'Mantar ara (Latince ya da Türkçe)'; q.value = gQuery; q.setAttribute('aria-label', 'Mantar ara');
+    const chips = el('div', 'g-chips');
+    const list = el('div', 'g-list');
+
+    const chipDefs = [['hepsi', 'Hepsi', GUIDE.length, null]].concat(GCATS.map(c => [c.key, c.short, GUIDE.filter(g => g.c === c.key).length, CATS[c.key].color]));
+    chipDefs.forEach(([k, label, n, col]) => {
+      const b = el('button', 'chip'); b.type = 'button'; b.setAttribute('aria-pressed', String(gFilter === k));
+      if (col) { b.style.setProperty('--c', col); b.innerHTML = '<span class="dot"></span>'; }
+      b.append(el('span', '', `${label} (${n})`));
+      b.addEventListener('click', () => { gFilter = k; [...chips.children].forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); draw(); });
+      chips.appendChild(b);
+    });
+    ctl.append(q, chips);
+    wrap.append(ctl, list, el('p', 'g-foot', 'Görseller iNaturalist\'ten (Creative Commons lisanslı gözlem fotoğrafları) ve bulunamayanlar için Vikipedi/Wikimedia Commons\'tan yüklenir; her resmin altında kaynağı, fotoğrafçısı ve lisansı yazar. Kullanım için lisans koşullarına (ör. ticari olmayan kullanım) uyun. İnternet yoksa yer tutucu çizim görünür.'));
+    q.addEventListener('input', () => { gQuery = q.value; draw(); });
+
+    if ('IntersectionObserver' in window) {
+      gObserver = new IntersectionObserver(entries => entries.forEach(en => {
+        if (en.isIntersecting) { gObserver.unobserve(en.target); en.target._load && en.target._load(); }
+      }), { root: gBody, rootMargin: '300px' });
+    }
+
+    function draw() {
+      list.innerHTML = '';
+      const nq = norm(gQuery);
+      GCATS.forEach(c => {
+        if (gFilter !== 'hepsi' && gFilter !== c.key) return;
+        const items = GUIDE.filter(g => g.c === c.key && (!nq || norm(g.latin + ' ' + (g.tr || '')).includes(nq)));
+        if (!items.length) return;
+        const sec = el('section', 'g-cat'); sec.style.setProperty('--c', CATS[c.key].color);
+        const head = el('div', 'g-cat-head');
+        head.append(el('span', 'g-cat-dot'), el('h3', '', c.title), el('span', 'g-count', String(items.length)));
+        sec.append(head, el('p', 'g-intro', c.intro));
+        const grid = el('div', 'g-grid');
+        items.forEach(g => {
+          const card = guideCard(g);
+          grid.appendChild(card);
+          if (gObserver) gObserver.observe(card); else card._load && card._load();
+        });
+        sec.appendChild(grid); list.appendChild(sec);
+      });
+      if (!list.children.length) list.appendChild(el('p', 'g-empty', 'Eşleşen mantar bulunamadı.'));
+    }
+    draw();
+  }
+
+  function guideCard(g) {
+    const col = CATS[g.c].color;
+    const card = el('article', 'g-card'); card.style.setProperty('--c', col);
+
+    const fig = el('figure', 'g-fig');
+    const ph = el('div', 'g-ph'); ph.innerHTML = phSvg(col);
+    const cap = el('figcaption', 'g-cap');
+    fig.append(ph, cap); card.appendChild(fig);
+
+    let loaded = false;
+    card._load = async () => {
+      if (loaded) return; loaded = true;
+      cap.textContent = 'Görsel aranıyor…';
+      const info = await getImage(g);
+      if (!info) {
+        cap.textContent = info === null ? 'Görsel için internet gerekir. Bağlanınca tekrar denenecek.' : 'Bu tür için açık lisanslı görsel bulunamadı.';
+        if (info === null) loaded = false;
+        return;
+      }
+      loadInto(info.urls, img => {
+        img.alt = g.tr ? `${g.tr} (${g.latin})` : g.latin;
+        ph.replaceWith(img);
+        const open = () => openLightbox(g, info);
+        fig.classList.add('zoom'); fig.tabIndex = 0; fig.setAttribute('role', 'button'); fig.setAttribute('aria-label', 'Resmi büyüt');
+        fig.addEventListener('click', e => { if (!e.target.closest('a')) open(); });
+        fig.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+        creditInto(cap, info);
+      }, () => { cap.textContent = 'Görsel yüklenemedi'; loaded = false; });
+    };
+
+    const body = el('div', 'g-card-body');
+    const badge = el('span', 'g-badge', CATS[g.c].label);
+    const title = el('h4', '', g.tr || g.latin);
+    const lat = el('p', 'g-latin');
+    if (g.tr) lat.appendChild(el('i', '', g.latin)); else lat.textContent = 'Yaygın Türkçe adı yok';
+    body.append(badge, title, lat);
+
+    if (!g.tr) { /* Türkçe ad yoksa Latince başlıkta; alt satırda bilgi */ title.className = 'g-latin-title'; }
+
+    body.appendChild(el('p', 'g-text', g.t));
+    const det = document.createElement('details'); det.className = 'g-det';
+    det.appendChild(el('summary', '', 'Tanıma ipuçları')); det.appendChild(el('p', '', g.i));
+    body.appendChild(det);
+
+    const warn = el('div', 'g-warn'); warn.append(el('strong', '', 'Dikkat: '), g.w);
+    body.appendChild(warn);
+
+    // Haritayla bağlantı: Gaziantep makalesinde kaydı varsa
+    const sp = SPECIES.find(s => s.latin === g.latin);
+    const n = sp && sp.lit ? litMarkers.filter(m => m.sp === sp.lit).length : 0;
+    if (sp && sp.lit && n) {
+      const b = el('button', 'btn small', `Haritada göster (${n} kayıt)`); b.type = 'button';
+      b.addEventListener('click', () => { closeGuide(); showSpecies(sp); });
+      body.appendChild(b);
+    } else if (sp && sp.lit) {
+      body.appendChild(el('p', 'g-mapnote', 'Gaziantep makalesinde kayıtlı; ama lokalite numarası hatalı olduğu için haritaya konamadı.'));
+    } else {
+      body.appendChild(el('p', 'g-mapnote', 'Gaziantep makalesinde kaydı yok.'));
+    }
+    card.appendChild(body);
+    return card;
+  }
+
+  /* ---- Avcılık kuralları ---- */
+  function tabKurallar(wrap) {
+    wrap.appendChild(el('h3', 'g-h', 'Mantar avcılığının temel kuralları'));
+    wrap.appendChild(noteBox('Altın kural:', 'Şüpheliysen yeme. Mantar toplamak zevkli ve güvenli bir uğraştır; ama hata payı sıfırdır.', 'warn'));
+    const ol = el('ol', 'g-rules');
+    RULES.forEach(([h, p]) => { const li = el('li'); li.append(el('strong', '', h), el('span', '', p)); ol.appendChild(li); });
+    wrap.appendChild(ol);
+
+    wrap.appendChild(el('h3', 'g-h', 'Yaygın yanlış inanışlar'));
+    const tbl = el('div', 'g-myths');
+    MYTHS.forEach(([m, t]) => { const r = el('div', 'g-myth'); r.append(el('p', 'm', m), el('p', 't', t)); tbl.appendChild(r); });
+    wrap.appendChild(tbl);
+
+    wrap.appendChild(el('h3', 'g-h', 'Zehirlenme şüphesinde ne yapmalı?'));
+    const box = el('div', 'g-emerg');
+    const ul = el('ul');
+    [
+      'Belirtiler: bulantı, kusma, karın ağrısı, ishal, aşırı terleme ya da salya, baş dönmesi, görme bozukluğu, sarılık.',
+      'Geç başlayan belirtiler (yedikten 6 saat ve sonrası) daha tehlikelidir; ölümcül türlerde ilk belirtiden sonra geçici düzelme görülebilir.',
+      'Beklemeden 112\'yi ara ya da en yakın acile git. Ulusal Zehir Danışma Merkezi: 114.',
+      'Yenen mantardan artık, temizlik atığı ya da fotoğraf varsa yanında götür. Aynı yemeği yiyen herkesi haberdar et.',
+      'Kendi kendine kusturmaya çalışma, süt ya da ev yöntemleriyle zaman kaybetme.',
+      'Belirtiler geçse bile tıbbi kontrol şarttır.'
+    ].forEach(t => ul.appendChild(el('li', '', t)));
+    box.appendChild(ul); wrap.appendChild(box);
+  }
+
+  /* ---- Yemekler ---- */
+  function tabYemek(wrap) {
+    wrap.appendChild(el('h3', 'g-h', 'Mantar yemekleri'));
+    wrap.appendChild(noteBox('Önce güvenlik:', 'Aşağıdaki tarifler şampinyon ve istiridye gibi bilinen yenilebilir mantarlar içindir. Yabani mantarı yalnızca kesin teşhisten sonra, iyice pişirerek ve ilk seferde az miktarda yiyin.', 'warn'));
+
+    const tips = el('div', 'g-tips');
+    [
+      ['Temizlik', 'Mantarı bolca suya batırma; nemli bezle sil ya da kısa süre yıkayıp hemen kurula. Fazla su yemeği sulandırır.'],
+      ['Kızartma', 'Tavayı kalabalık etme. Mantarlar su bırakır; suyu çekilene kadar karıştırmadan, orta-yüksek ateşte kızart.'],
+      ['Saklama', 'Taze mantarı kâğıt torbada buzdolabında 2-3 gün sakla. Kurutmak için ince dilimle; kullanırken ılık suda 20-30 dakika beklet.'],
+      ['Dondurma', 'Yabani mantarı çiğ değil, hafifçe pişirdikten sonra dondur.']
+    ].forEach(([h, t]) => { const d = el('div', 'g-tip'); d.append(el('strong', '', h), el('p', '', t)); tips.appendChild(d); });
+    wrap.appendChild(tips);
+
+    const grid = el('div', 'g-grid g-recipes');
+    RECIPES.forEach(r => {
+      const c = el('article', 'g-recipe');
+      c.appendChild(el('h4', '', r.name));
+      c.appendChild(el('p', 'g-meta', `${r.time} · ${r.serv} · ${r.note}`));
+      c.appendChild(el('h5', '', 'Malzemeler'));
+      const ul = el('ul'); r.ing.forEach(x => ul.appendChild(el('li', '', x))); c.appendChild(ul);
+      c.appendChild(el('h5', '', 'Yapılışı'));
+      const ol = el('ol'); r.steps.forEach(x => ol.appendChild(el('li', '', x))); c.appendChild(ol);
+      grid.appendChild(c);
+    });
+    wrap.appendChild(grid);
+  }
+
+  /* ---- Makromantarlar ---- */
+  function tabBilgi(wrap) {
+    const sections = [
+      ['Makromantar nedir?', ['Gözle görülebilen meyve gövdesi (şapkalı mantar, kuzugöbeği, trüf, odun mantarı gibi) oluşturan mantarlara makromantar denir. Büyük çoğunluğu Basidiomycota (şapkalı mantarlar) ve Ascomycota (kuzugöbeği, trüf, kupa mantarları) gruplarındadır.']],
+      ['Gördüğümüz kısım meyvedir', ['Mantarın asıl gövdesi toprağın ya da odunun içinde yayılan ince iplikler ağı olan misel\'dir. Gördüğümüz mantar ise sporlarını yaymak için oluşturulan "meyve"dir. Bu yüzden bir mantarı toplamak çoğunlukla miseli öldürmez; ama toprağı tırmıklamak ve ezmek zarar verir.']],
+      ['Doğadaki rolleri', [
+        'Ayrıştırıcılar (saprotroflar): Ölü odun, yaprak ve gübreyi ayrıştırarak besin döngüsünü sağlar. Gaziantep makalesine göre bölgedeki 217 türün 60\'ı odun ayrıştırıcıdır.',
+        'Mikorizal ortaklar: Ağaç köklerinde yaşayıp suyu ve mineralleri taşırlar; porçini, kanlıca ve trüf bunlardandır. Bu yüzden yetiştirilmeleri zordur.',
+        'Parazitler: Bal mantarı gibi türler canlı ağaçlarda kök çürüklüğü yapabilir.'
+      ]],
+      ['Bir mantarın parçaları', [
+        'Şapka, şapkanın altındaki yüzey (lamel, gözenek, diken ya da kıvrım), sap, sapta halka (yüzük) ve sap tabanında torba (volva) tanıma için temel parçalardır.',
+        'Ölümcül amanitaların ayırt edici özelliği olan torba çoğu zaman toprak altındadır; bu yüzden mantar kesilerek değil, tabanıyla çıkarılarak incelenmelidir.'
+      ]],
+      ['Spor baskısı nasıl alınır?', [
+        'Olgun bir mantarın şapkasını sapından ayır. Alt yüzü beyaz ve koyu renkli kâğıdın üzerine gelecek şekilde koy, üstüne bir bardak kapat.',
+        '2-6 saat sonra sporlar kâğıtta bir desen oluşturur. Beyaz, pembe, kahverengi, pas kahverengi, mor-kahve ya da siyah spor baskısı, aynı görünümlü türleri ayırmanın önemli bir yoludur.'
+      ]],
+      ['Gaziantep makromantarları', [
+        'Kaya ve arkadaşlarının (2019) çalışması, 2009-2015 yılları arasında Gaziantep\'in 64 lokalitesinden 217 makromantar türü belirlemiştir; bölgenin bilinen makromantar sayısı bu çalışmayla birlikte 404\'e ulaşmıştır.',
+        'Makaleye göre türlerin 60\'ı yenilebilir, 138\'i yenmez, 19\'u az ya da çok zehirlidir. Yöre halkı yalnızca altı türü toplayıp tüketir: çayır mantarı, mürekkep mantarı, kanlıca, istiridye mantarı, çöl trüfü ve Tricholoma terreum.',
+        'Çöl trüfünün (Terfezia boudieri) yerel ekonomik önemi vardır; sonbaharda köylüler tarafından toplanıp ihracat firmalarına satılan trüf türleri de bölge için değerlidir.',
+        'Kayıtların büyük bölümü sonbahar (Ekim-Aralık) ve ilkbahar (Mart-Mayıs) aylarına aittir. Haritadaki "Gaziantep makalesi" katmanı bu kayıtları gösterir.'
+      ]],
+      ['Mantar sezonu için ipuçları', [
+        'Sonbahar yağmurlarından birkaç gün, ilkbaharda ise ılık yağmurlardan sonra mantar çıkma olasılığı artar. Çam, meşe ve kavak altlarını gözle; nemli, gölgeli ve yaprak döküntülü yerlere bak.',
+        'Aynı noktayı farklı mevsimlerde tekrar ziyaret etmek, mantarın nerede ve ne zaman çıktığını öğrenmenin en iyi yoludur. Bunun için uygulamaya her bulguyu kaydet.'
+      ]],
+      ['Sağlık iddialarına dikkat', [
+        'Mantarlar düşük kalorili ve lif bakımından zengindir; ancak "şunu iyileştirir" türü tıbbi iddiaların çoğu henüz araştırma aşamasındadır. Ganoderma ve Trametes gibi türleri kendi başınıza tedavi amacıyla kullanmayın.'
+      ]]
+    ];
+    wrap.appendChild(el('h3', 'g-h', 'Makromantarlar hakkında faydalı bilgiler'));
+    sections.forEach(([h, ps]) => {
+      const s = el('section', 'g-info'); s.appendChild(el('h4', '', h));
+      ps.forEach(p => s.appendChild(el('p', '', p))); wrap.appendChild(s);
+    });
+    wrap.appendChild(el('p', 'g-foot', 'Gaziantep verileri: Kaya, A., Uzun, Y., Karacan, H. İ. ve Yakar, S. (2019), Kastamonu Üniv. Orman Fakültesi Dergisi 19(3): 329-341. Rehber metinleri bu proje için özgün olarak yazılmıştır.'));
+  }
+
+
+  /* =========================================================
+     13) Açılış görünümü
+     ========================================================= */
+  if (records.length) {
+    map.fitBounds(L.latLngBounds(records.map(r => [r.lat, r.lng])).pad(0.3), { maxZoom: 14 });
+  } else {
+    map.fitBounds(L.latLngBounds(Object.values(LOC).filter(l => !l.flagged).map(l => [l.lat, l.lng])).pad(0.08));
+  }
+})();
+</script>
+</body>
+</html>
