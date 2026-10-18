@@ -5,6 +5,6 @@
    ASLA "service_role" / "secret" anahtarını buraya yazma.
    Boş bırakırsan uygulama yalnızca cihazda çalışır (topluluk özellikleri kapalı kalır). */
 window.MANTAR_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: ""
+  SUPABASE_URL: "https://fylkzbgampjoxxkhbjie.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_4sTsURX1Ai5KZq3qvIeybg_f6w6jmQt"
 };
